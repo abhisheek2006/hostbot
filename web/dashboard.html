@@ -97,7 +97,16 @@
                         <pre class="log-box" id="logBox"><span class="log-empty">Loading logs...</span></pre>
                     </div>
                     <div class="tab-view" data-view="env">
+                        <div class="env-toolbar">
+                            <span class="hint">Environment variables — edited here are saved to the database and applied on restart (like Railway).</span>
+                            <div class="seg" role="group" aria-label="Editor mode">
+                                <button class="seg-btn active" id="envModeRows" type="button">Rows</button>
+                                <button class="seg-btn" id="envModeRaw" type="button">Raw .env</button>
+                            </div>
+                        </div>
                         <div class="env-rows" id="envRows"></div>
+                        <textarea class="env-raw" id="envRaw" spellcheck="false" placeholder="BOT_TOKEN=...
+API_ID=..." hidden></textarea>
                         <div class="env-actions">
                             <button class="btn btn-ghost btn-sm" id="addEnvBtn"><i class="ph ph-plus" aria-hidden="true"></i> Add variable</button>
                             <button class="btn btn-primary btn-sm" id="saveEnvBtn"><i class="ph ph-floppy-disk" aria-hidden="true"></i> Save env</button>

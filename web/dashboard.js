@@ -14,7 +14,8 @@
         detailFile: null,
         autoRefresh: false,
         refreshTimer: null,
-        logTimer: null
+        logTimer: null,
+        envMode: "rows"
     };
 
     var els = {
@@ -209,14 +210,35 @@
     }
 
     async function loadEnv(file) {
-        els.envRows.innerHTML = "";
         try {
             var res = await API.envGet(file);
             var env = res.env || {};
             renderEnvRows(env);
+            renderRawEnv(env);
         } catch (err) {
             toast(err.message || "Failed to load env", true);
         }
+    }
+
+    function envToRaw(env) {
+        return Object.keys(env).map(function (k) {
+            var v = env[k] == null ? "" : String(env[k]);
+            return /[\s#]/.test(v) ? k + '="' + v + '"' : k + "=" + v;
+        }).join("\n");
+    }
+
+    function renderRawEnv(env) {
+        els.envRaw.value = envToRaw(env);
+    }
+
+    function setEnvMode(mode) {
+        state.envMode = mode;
+        var rows = mode === "rows";
+        els.envRows.hidden = !rows;
+        els.envRaw.hidden = rows;
+        document.getElementById("addEnvBtn").style.display = rows ? "" : "none";
+        document.getElementById("envModeRows").classList.toggle("active", rows);
+        document.getElementById("envModeRaw").classList.toggle("active", !rows);
     }
 
     function renderEnvRows(env) {
@@ -258,19 +280,33 @@
 
     async function saveEnv(file) {
         var env = {};
-        var rows = els.envRows.querySelectorAll(".env-row");
-        rows.forEach(function (row) {
-            var k = row.querySelector(".key-in").value.trim();
-            var v = row.querySelector(".val-in").value;
-            if (k) env[k] = v;
-        });
+        if (state.envMode === "rows") {
+            var rows = els.envRows.querySelectorAll(".env-row");
+            rows.forEach(function (row) {
+                var k = row.querySelector(".key-in").value.trim();
+                var v = row.querySelector(".val-in").value;
+                if (k) env[k] = v;
+            });
+        } else {
+            env = els.envRaw.value; // raw .env text; parsed server-side
+        }
+        var btn = document.getElementById("saveEnvBtn");
+        var saved = document.getElementById("envSaved");
+        var original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-circle-notch spinning" aria-hidden="true"></i><span>Saving...</span>';
         try {
             var res = await API.envSet(file, env);
-            var saved = document.getElementById("envSaved");
+            btn.disabled = false;
+            btn.innerHTML = original;
+            saved.querySelector("span").textContent = res.message || "Saved";
             saved.classList.add("show");
-            setTimeout(function () { saved.classList.remove("show"); }, 2500);
+            setTimeout(function () { saved.classList.remove("show"); }, 3000);
             toast(res.message || "Environment saved");
+            loadEnv(file); // re-sync editor with what is actually stored
         } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = original;
             toast(err.message || "Failed to save env", true);
         }
     }
@@ -315,6 +351,18 @@
     document.getElementById("saveEnvBtn").addEventListener("click", function () {
         if (state.detailFile) saveEnv(state.detailFile);
     });
+
+    document.getElementById("envModeRows").addEventListener("click", function () {
+        setEnvMode("rows");
+    });
+
+    document.getElementById("envModeRaw").addEventListener("click", function () {
+        if (state.detailFile && state.envMode !== "raw") {
+            setEnvMode("raw");
+        }
+    });
+
+    setEnvMode("rows");
 
     document.querySelectorAll(".tab").forEach(function (t) {
         t.addEventListener("click", function () {

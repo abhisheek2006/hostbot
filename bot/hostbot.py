@@ -3478,8 +3478,10 @@ def start_status_server():
                 new_env = body.get('env')
                 if not file_name or not _file_owned(sess['telegram_id'], file_name):
                     return self._send({'error': 'file not found'}, 404)
+                if isinstance(new_env, str):
+                    new_env = _parse_env_text(new_env)
                 if not isinstance(new_env, dict):
-                    return self._send({'error': 'env must be an object of key/value pairs'}, 400)
+                    return self._send({'error': 'env must be an object of key/value pairs or raw .env text'}, 400)
                 env_path, env_data = _read_env(sess['telegram_id'], file_name)
                 env_key_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
                 for k in new_env:
