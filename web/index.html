@@ -1,250 +1,368 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="HostBot — host, run and manage your Python & JS Telegram bots 24/7 from inside Telegram." />
-  <title>HostBot — Host your bots 24/7</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="HostBot — host, run and manage your Python & JS Telegram bots 24/7 directly from Telegram.">
+    <title>HostBot — High Performance Bot Hosting</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="glow glow-a"></div>
-  <div class="glow glow-b"></div>
 
-  <nav class="nav" id="nav">
-    <div class="container nav-inner">
-      <a class="brand" href="#">
-        <span class="brand-mark">▣</span> HostBot
-      </a>
-      <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#commands">Commands</a>
-        <a href="#how">How it works</a>
-        <a href="#admin">Admin</a>
-        <a href="#status">Live status</a>
-      </div>
-      <a class="btn btn-primary btn-sm" href="https://t.me/hostbot" target="_blank" rel="noopener">
-        Open in Telegram
-      </a>
-      <button class="nav-burger" id="navBurger" aria-label="Menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-      </button>
-    </div>
-  </nav>
+    <main class="page">
 
-  <header class="hero container">
-    <div class="status-pill" id="statusPill" data-state="loading">
-      <span class="dot"></span>
-      <span class="status-text">Checking bot status…</span>
-    </div>
-    <h1 class="hero-title">
-      Host your <span class="gradient">Python &amp; JS bots</span><br />
-      directly from Telegram.
-    </h1>
-    <p class="hero-sub">
-      Upload a <code>.py</code>, <code>.js</code> or <code>.zip</code> file, get it approved,
-      and HostBot keeps it running 24/7 — with one-tap start, stop, restart, logs and auto
-      dependency installs. No servers to configure.
-    </p>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="https://t.me/hostbot" target="_blank" rel="noopener">🤖 Start using the bot</a>
-      <a class="btn btn-ghost" href="#commands">See commands ↓</a>
-    </div>
+        <!-- NAVIGATION -->
+        <nav>
+            <a href="#" class="logo">
+                <div class="logo-icon">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                HostBot
+            </a>
 
-    <div class="terminal">
-      <div class="terminal-bar">
-        <span class="t-dot red"></span><span class="t-dot yellow"></span><span class="t-dot green"></span>
-        <span class="terminal-title">/hostbot · live</span>
-      </div>
-      <pre class="terminal-body"><span class="t-g">$</span> hostbot start my_bot.py
-<span class="t-c">✔</span> Approved · starting <span class="t-b">my_bot.py</span>
-<span class="t-c">✔</span> Installing dependencies… done
-<span class="t-c">✔</span> Process started (PID 4821)
-<span class="t-c">✔</span> <span class="t-g">● Running</span> — uptime 12h 04m</pre>
-    </div>
-  </header>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#commands">Commands</a>
+                <a href="#how">How it works</a>
+                <a href="#admin">Admin</a>
+                <a href="#status">Status</a>
+            </div>
 
-  <main>
-    <section class="section" id="features">
-      <div class="container">
-        <p class="eyebrow">What you get</p>
-        <h2 class="section-title">Everything a bot host should be</h2>
-        <div class="grid cards">
-          <article class="card">
-            <div class="card-icon">📦</div>
-            <h3>File hosting</h3>
-            <p>Host single scripts or full <code>.zip</code> projects. Keep as many bots as your plan allows.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">🛡️</div>
-            <h3>Admin approval</h3>
-            <p>Every upload is reviewed by admins before it can run. Nothing untrusted executes.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">⚙️</div>
-            <h3>Auto dependencies</h3>
-            <p>Missing <code>pip</code> / <code>npm</code> packages are detected and installed automatically.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">🔀</div>
-            <h3>Python + Node.js</h3>
-            <p>Runs on Python 3.14 and Node.js, so both <code>.py</code> and <code>.js</code> bots work.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">⏱️</div>
-            <h3>Start / Stop / Restart</h3>
-            <p>Full process control from the inline buttons — restart a crashed bot in one tap.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">📜</div>
-            <h3>Live logs</h3>
-            <p>Read the last 100 KB of any running bot's output straight in the chat.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">📣</div>
-            <h3>Broadcast &amp; subscriptions</h3>
-            <p>Send messages to every active user, or grant premium slots with day-based expiry.</p>
-          </article>
-          <article class="card">
-            <div class="card-icon">🤖</div>
-            <h3>MPX AI assistant</h3>
-            <p>Ask the built-in <code>/mpx</code> assistant anything while you build.</p>
-          </article>
-        </div>
-      </div>
-    </section>
+            <div class="nav-actions">
+                <a href="https://t.me/hostbot" target="_blank" rel="noopener" class="login">Open in Telegram</a>
+                <a href="#commands" class="register">Commands</a>
+            </div>
+        </nav>
 
-    <section class="section section-alt" id="commands">
-      <div class="container">
-        <p class="eyebrow">Commands</p>
-        <h2 class="section-title">Everything at your fingertips</h2>
-        <div class="grid two-col">
-          <div>
-            <h3 class="sub-h">For everyone</h3>
-            <ul class="cmd-list">
-              <li><code>/start</code> <span>open the main menu</span></li>
-              <li><code>/uploadfile</code> <span>send a .py / .js / .zip</span></li>
-              <li><code>/checkfiles</code> <span>manage your bots</span></li>
-              <li><code>/stats</code> <span>bot statistics</span></li>
-              <li><code>/speed</code> <span>API response time</span></li>
-              <li><code>/uptime</code> <span>how long the host is up</span></li>
-              <li><code>/mpx</code> <span>ask the AI assistant</span></li>
-              <li><code>/help</code> <span>show this help</span></li>
-            </ul>
-          </div>
-          <div>
-            <h3 class="sub-h">Admins &amp; owner</h3>
-            <ul class="cmd-list">
-              <li><code>/pending</code> <span>review uploads</span></li>
-              <li><code>/broadcast</code> <span>message all users</span></li>
-              <li><code>/subscriptions</code> <span>manage premium slots</span></li>
-              <li><code>/lockbot</code> <span>lock the bot</span></li>
-              <li><code>/adminpanel</code> <span>promote / demote admins</span></li>
-              <li><code>/runningallcode</code> <span>start every approved bot</span></li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </section>
+        <!-- HERO -->
+        <section class="hero">
 
-    <section class="section" id="how">
-      <div class="container">
-        <p class="eyebrow">How it works</p>
-        <h2 class="section-title">Up and running in 3 steps</h2>
-        <div class="steps">
-          <div class="step">
-            <span class="step-num">01</span>
-            <h3>Upload</h3>
-            <p>Send your script or <code>.zip</code> project to the bot. Admins get notified instantly.</p>
-          </div>
-          <div class="step">
-            <span class="step-num">02</span>
-            <h3>Approval</h3>
-            <p>An admin reviews the file and approves it — you get a notification when it's live.</p>
-          </div>
-          <div class="step">
-            <span class="step-num">03</span>
-            <h3>Run &amp; manage</h3>
-            <p>Hit start, watch logs, restart on demand. Your bot stays online 24/7.</p>
-          </div>
-        </div>
-      </div>
-    </section>
+            <div class="hero-content">
 
-    <section class="section section-alt" id="admin">
-      <div class="container">
-        <p class="eyebrow">For the owner</p>
-        <h2 class="section-title">Full control panel</h2>
-        <div class="grid two-col">
-          <div class="admin-block">
-            <h3>Approval queue</h3>
-            <p>Inline approve / reject buttons on every uploaded file, plus a live pending counter on the main menu.</p>
-          </div>
-          <div class="admin-block">
-            <h3>Run-everything</h3>
-            <p>One command restarts every approved bot after a crash or a server reboot.</p>
-          </div>
-          <div class="admin-block">
-            <h3>Subscriptions</h3>
-            <p>Grant extra file slots with day-based expiry. Free users get 2, premium 15, admins unlimited.</p>
-          </div>
-          <div class="admin-block">
-            <h3>Broadcast</h3>
-            <p>Flood-safe broadcasting to all active users with batch delays and retry handling.</p>
-          </div>
-        </div>
-      </div>
-    </section>
+                <div class="badge">
+                    ✦ Premium Bot Hosting
+                </div>
 
-    <section class="section" id="status">
-      <div class="container">
-        <p class="eyebrow">Live status</p>
-        <h2 class="section-title">Is HostBot online?</h2>
-        <div class="status-card" id="statusCard">
-          <div class="status-big" id="statusBig">
-            <span class="dot"></span>
-            <span>Checking…</span>
-          </div>
-          <div class="status-stats" id="statusStats">
-            <div class="stat"><span class="stat-label">Uptime</span><span class="stat-value" id="stUptime">—</span></div>
-            <div class="stat"><span class="stat-label">Users</span><span class="stat-value" id="stUsers">—</span></div>
-            <div class="stat"><span class="stat-label">Bots running</span><span class="stat-value" id="stBots">—</span></div>
-            <div class="stat"><span class="stat-label">Pending files</span><span class="stat-value" id="stPending">—</span></div>
-          </div>
-          <p class="status-hint" id="statusHint">Connect the status endpoint on your VPS to show live data here.</p>
-        </div>
-      </div>
-    </section>
+                <h1>
+                    Host your Python &amp; JS bots
+                    <span>directly from Telegram</span>
+                </h1>
 
-    <section class="section section-alt" id="deploy">
-      <div class="container narrow">
-        <p class="eyebrow">Infrastructure</p>
-        <h2 class="section-title">Vercel + VPS, best of both</h2>
-        <p class="center-text">
-          This page is served by <strong>Vercel</strong>. The Telegram bot itself runs 24/7 on your
-          <strong>VPS</strong> (Docker or systemd), where it can keep bots alive and store data.
-          A tiny status server on the VPS feeds the live stats above.
-        </p>
-      </div>
-    </section>
-  </main>
+                <p class="description">
+                    Upload a <b>.py</b>, <b>.js</b> or <b>.zip</b> project,
+                    get it approved by admins, and HostBot keeps it running
+                    24/7 — with auto dependency installs, live logs and
+                    one-tap process control.
+                </p>
 
-  <footer class="footer">
-    <div class="container footer-inner">
-      <span class="brand"><span class="brand-mark">▣</span> HostBot</span>
-      <span>Built with ❤️ · Python 3.14 · Hosted on Vercel + VPS</span>
-    </div>
-  </footer>
+                <!-- FEATURES -->
+                <div class="features">
 
-  <script>
-    // Point this at your VPS status server, e.g.
-    // window.HOSTBOT_STATUS_URL = "https://bot.example.com";
-    window.HOSTBOT_STATUS_URL = "";
-  </script>
-  <script src="script.js"></script>
+                    <div class="feature">
+                        <div class="feature-icon">ϟ</div>
+                        <h3>Fast Execution</h3>
+                        <p>
+                            Runs on Python 3.14
+                            and Node.js, start/stop
+                            in a single tap
+                        </p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="feature-icon">▤</div>
+                        <h3>Managed Processes</h3>
+                        <p>
+                            Dedicated process per bot
+                            with live logs &amp; restart
+                        </p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="feature-icon">◈</div>
+                        <h3>Auto Dependencies</h3>
+                        <p>
+                            Missing pip / npm packages
+                            installed automatically
+                        </p>
+                    </div>
+
+                </div>
+
+                <!-- STATUS -->
+                <div class="status" id="heroStatus">
+
+                    <div class="status-title">
+                        <span class="status-label">Status</span>
+                        <span id="heroStatusText">● Checking…</span>
+                    </div>
+
+                    <div class="status-row">
+                        <span class="status-label">Uptime</span>
+                        <span class="uptime">
+                            <span class="uptime-line"></span>
+                            <span id="heroUptime">99.99%</span>
+                        </span>
+                    </div>
+
+                    <div class="status-row">
+                        <span class="status-label">Running Bots</span>
+                        <span class="status-value" id="heroBots">—</span>
+                    </div>
+
+                    <div class="status-row">
+                        <span class="status-label">Pending Files</span>
+                        <span class="status-value" id="heroPending">—</span>
+                    </div>
+
+                </div>
+
+                <!-- BUTTONS -->
+                <div class="buttons">
+                    <a href="https://t.me/hostbot" target="_blank" rel="noopener" class="btn btn-primary">
+                        Start Using HostBot →
+                    </a>
+                    <a href="#commands" class="btn btn-secondary">
+                        View Commands
+                    </a>
+                </div>
+
+            </div>
+
+            <!-- TERMINAL -->
+            <div class="terminal">
+
+                <div class="terminal-header">
+                    <div class="terminal-dots">
+                        <span class="dot red"></span>
+                        <span class="dot yellow"></span>
+                        <span class="dot green"></span>
+                    </div>
+                    root@hostbot:~#
+                </div>
+
+                <div class="terminal-body">
+
+                    <div class="command">check-bot-status</div>
+                    <div class="terminal-value">Bot Status: <span>Online</span></div>
+                    <div class="terminal-value">Uptime: <span>12d 04h 11m</span></div>
+                    <div class="terminal-value">Running Bots: <span>3</span></div>
+
+                    <br>
+
+                    <div class="command">start my_bot.py</div>
+                    <div class="terminal-value">Installing dependencies… <span>done</span></div>
+                    <div class="terminal-value">Process started <span>(PID 4821)</span></div>
+
+                    <div class="progress">
+                        <div class="progress-bar"></div>
+                    </div>
+
+                    <div class="success">Bot Running Successfully!</div>
+
+                </div>
+
+            </div>
+
+            <!-- DECORATIVE DOTS -->
+            <span class="glow one"></span>
+            <span class="glow two"></span>
+            <span class="glow three"></span>
+
+        </section>
+
+        <!-- FEATURES -->
+        <section class="section" id="features">
+            <div class="section-head">
+                <p class="eyebrow">What you get</p>
+                <h2 class="section-title">Everything a bot host should be</h2>
+            </div>
+
+            <div class="grid cards">
+                <article class="card">
+                    <div class="card-icon">📦</div>
+                    <h3>File hosting</h3>
+                    <p>Host single scripts or full <code>.zip</code> projects. Keep as many bots as your plan allows.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">🛡️</div>
+                    <h3>Admin approval</h3>
+                    <p>Every upload is reviewed by admins before it can run. Nothing untrusted executes.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">⚙️</div>
+                    <h3>Auto dependencies</h3>
+                    <p>Missing <code>pip</code> / <code>npm</code> packages are detected and installed automatically.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">🐍</div>
+                    <h3>Python + Node.js</h3>
+                    <p>Runs on Python 3.14 and Node.js, so both <code>.py</code> and <code>.js</code> bots work.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">🔀</div>
+                    <h3>Start / Stop / Restart</h3>
+                    <p>Full process control from the inline buttons — restart a crashed bot in one tap.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">📜</div>
+                    <h3>Live logs</h3>
+                    <p>Read the last 100 KB of any running bot's output straight in the chat.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">📣</div>
+                    <h3>Broadcast &amp; subscriptions</h3>
+                    <p>Message every active user, or grant premium slots with day-based expiry.</p>
+                </article>
+                <article class="card">
+                    <div class="card-icon">🤖</div>
+                    <h3>MPX AI assistant</h3>
+                    <p>Ask the built-in <code>/mpx</code> assistant anything while you build.</p>
+                </article>
+            </div>
+        </section>
+
+        <!-- COMMANDS -->
+        <section class="section alt" id="commands">
+            <div class="section-head">
+                <p class="eyebrow">Commands</p>
+                <h2 class="section-title">Everything at your fingertips</h2>
+            </div>
+
+            <div class="grid two-col">
+                <div>
+                    <h3 class="sub-h">For everyone</h3>
+                    <ul class="cmd-list">
+                        <li><code>/start</code><span>open the main menu</span></li>
+                        <li><code>/uploadfile</code><span>send a .py / .js / .zip</span></li>
+                        <li><code>/checkfiles</code><span>manage your bots</span></li>
+                        <li><code>/stats</code><span>bot statistics</span></li>
+                        <li><code>/speed</code><span>API response time</span></li>
+                        <li><code>/uptime</code><span>how long the host is up</span></li>
+                        <li><code>/mpx</code><span>ask the AI assistant</span></li>
+                        <li><code>/help</code><span>show this help</span></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="sub-h">Admins &amp; owner</h3>
+                    <ul class="cmd-list">
+                        <li><code>/pending</code><span>review uploads</span></li>
+                        <li><code>/broadcast</code><span>message all users</span></li>
+                        <li><code>/subscriptions</code><span>manage premium slots</span></li>
+                        <li><code>/lockbot</code><span>lock the bot</span></li>
+                        <li><code>/adminpanel</code><span>promote / demote admins</span></li>
+                        <li><code>/runningallcode</code><span>start every approved bot</span></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- HOW IT WORKS -->
+        <section class="section" id="how">
+            <div class="section-head">
+                <p class="eyebrow">How it works</p>
+                <h2 class="section-title">Up and running in 3 steps</h2>
+            </div>
+
+            <div class="steps">
+                <div class="step">
+                    <span class="step-num">01</span>
+                    <h3>Upload</h3>
+                    <p>Send your script or <code>.zip</code> project to the bot. Admins get notified instantly.</p>
+                </div>
+                <div class="step">
+                    <span class="step-num">02</span>
+                    <h3>Approval</h3>
+                    <p>An admin reviews the file and approves it — you get a notification when it's live.</p>
+                </div>
+                <div class="step">
+                    <span class="step-num">03</span>
+                    <h3>Run &amp; manage</h3>
+                    <p>Hit start, watch logs, restart on demand. Your bot stays online 24/7.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ADMIN -->
+        <section class="section alt" id="admin">
+            <div class="section-head">
+                <p class="eyebrow">For the owner</p>
+                <h2 class="section-title">Full control panel</h2>
+            </div>
+
+            <div class="grid two-col">
+                <div class="admin-block">
+                    <h3>Approval queue</h3>
+                    <p>Inline approve / reject buttons on every uploaded file, plus a live pending counter on the main menu.</p>
+                </div>
+                <div class="admin-block">
+                    <h3>Run everything</h3>
+                    <p>One command restarts every approved bot after a crash or a server reboot.</p>
+                </div>
+                <div class="admin-block">
+                    <h3>Subscriptions</h3>
+                    <p>Grant extra file slots with day-based expiry. Free users get 2, premium 15, admins unlimited.</p>
+                </div>
+                <div class="admin-block">
+                    <h3>Broadcast</h3>
+                    <p>Flood-safe broadcasting to all active users with batch delays and retry handling.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- LIVE STATUS -->
+        <section class="section" id="status">
+            <div class="section-head">
+                <p class="eyebrow">Live status</p>
+                <h2 class="section-title">Is HostBot online?</h2>
+            </div>
+
+            <div class="status status-big-card" id="statusCard">
+                <div class="status-big" id="statusBig">
+                    <span class="big-dot"></span>
+                    <span>Checking…</span>
+                </div>
+                <div class="status-stats">
+                    <div class="stat"><span class="stat-label">Uptime</span><span class="stat-value" id="stUptime">—</span></div>
+                    <div class="stat"><span class="stat-label">Users</span><span class="stat-value" id="stUsers">—</span></div>
+                    <div class="stat"><span class="stat-label">Bots running</span><span class="stat-value" id="stBots">—</span></div>
+                    <div class="stat"><span class="stat-label">Pending files</span><span class="stat-value" id="stPending">—</span></div>
+                </div>
+                <p class="status-hint" id="statusHint">Connect the status endpoint on your VPS to show live data here.</p>
+            </div>
+        </section>
+
+        <!-- DEPLOY -->
+        <section class="section alt" id="deploy">
+            <div class="section-head narrow">
+                <p class="eyebrow">Infrastructure</p>
+                <h2 class="section-title">Vercel + VPS, best of both</h2>
+            </div>
+            <p class="center-text">
+                This page is served by <strong>Vercel</strong>. The Telegram bot itself runs 24/7 on your
+                <strong>VPS</strong> (Docker or systemd), where it can keep bots alive and store data.
+                A tiny status server on the VPS feeds the live stats above.
+            </p>
+        </section>
+
+        <!-- FOOTER -->
+        <footer class="footer">
+            <span class="logo"><div class="logo-icon"><span></span><span></span><span></span><span></span></div> HostBot</span>
+            <span>Built with ❤️ · Python 3.14 · Hosted on Vercel + VPS</span>
+        </footer>
+
+    </main>
+
+    <script>
+        // Point this at your VPS status server, e.g.
+        // window.HOSTBOT_STATUS_URL = "https://bot.example.com";
+        window.HOSTBOT_STATUS_URL = "";
+    </script>
+    <script src="script.js"></script>
 </body>
 </html>

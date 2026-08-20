@@ -5,26 +5,33 @@
   //   window.HOSTBOT_STATUS_URL = "https://your-vps.example.com";
   const STATUS_URL = (window.HOSTBOT_STATUS_URL || "").replace(/\/+$/, "");
 
-  // ---------- Nav ----------
-  const nav = document.getElementById("nav");
-  const burger = document.getElementById("navBurger");
+  // ---------- Terminal deploy animation ----------
+  const progressBar = document.querySelector(".progress-bar");
+  const successMsg = document.querySelector(".success");
 
-  const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 8);
-  window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
+  function deployAnimation() {
+    let progress = 0;
+    if (progressBar) progressBar.style.width = "0%";
+    if (successMsg) successMsg.style.opacity = "0";
 
-  if (burger) {
-    burger.addEventListener("click", () => {
-      const open = nav.classList.toggle("open");
-      burger.setAttribute("aria-expanded", String(open));
-    });
+    const interval = setInterval(() => {
+      progress += Math.random() * 8;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        if (successMsg) successMsg.style.opacity = "1";
+      }
+      if (progressBar) progressBar.style.width = progress + "%";
+    }, 120);
   }
-  document.querySelectorAll(".nav-links a").forEach((a) =>
-    a.addEventListener("click", () => nav.classList.remove("open"))
-  );
+
+  deployAnimation();
+  setInterval(deployAnimation, 8000);
 
   // ---------- Reveal on scroll ----------
-  const revealEls = document.querySelectorAll(".card, .step, .admin-block, .cmd-list li");
+  const revealEls = document.querySelectorAll(
+    ".card, .step, .admin-block, .cmd-list li"
+  );
   if ("IntersectionObserver" in window) {
     revealEls.forEach((el) => el.classList.add("reveal"));
     const io = new IntersectionObserver(
@@ -42,32 +49,47 @@
   }
 
   // ---------- Live status ----------
-  const pill = document.getElementById("statusPill");
-  const pillText = document.querySelector("#statusPill .status-text");
+  const heroStatusText = document.getElementById("heroStatusText");
+  const heroUptime = document.getElementById("heroUptime");
+  const heroBots = document.getElementById("heroBots");
+  const heroPending = document.getElementById("heroPending");
+
   const big = document.getElementById("statusBig");
   const hint = document.getElementById("statusHint");
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  };
 
   function setState(state, label) {
-    pill.dataset.state = state;
-    pillText.textContent = label;
-    big.className = "status-big " + (state === "online" ? "online" : state === "offline" ? "offline" : "");
-    const bigText = big.querySelector("span:last-child");
-    if (bigText) bigText.textContent = label;
+    if (heroStatusText) heroStatusText.textContent = label;
+    if (big) {
+      big.className =
+        "status-big " + (state === "online" ? "online" : state === "offline" ? "offline" : "");
+      const span = big.querySelector("span:last-child");
+      if (span) span.textContent = label;
+    }
   }
 
   if (!STATUS_URL) {
-    setState("offline", "Status endpoint not configured");
+    setState("offline", "● Status endpoint not configured");
+    if (hint) hint.textContent = "Set window.HOSTBOT_STATUS_URL in web/index.html to show live data.";
     return;
   }
 
-  fetch(STATUS_URL + "/health", { headers: { Accept: "application/json" }, mode: "cors" })
+  fetch(STATUS_URL + "/health", {
+    headers: { Accept: "application/json" },
+    mode: "cors",
+  })
     .then((res) => {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
     })
     .then((data) => {
-      setState("online", "Online · HostBot is live");
+      setState("online", "● All Systems Operational");
+      if (heroUptime) heroUptime.textContent = data.uptime || "99.99%";
+      if (heroBots) heroBots.textContent = data.running_bots ?? "—";
+      if (heroPending) heroPending.textContent = data.pending_files ?? "—";
       set("stUptime", data.uptime || "—");
       set("stUsers", data.total_users ?? "—");
       set("stBots", data.running_bots ?? "—");
@@ -75,7 +97,9 @@
       if (hint) hint.textContent = "Live data from your VPS status server.";
     })
     .catch(() => {
-      setState("offline", "Offline · could not reach status server");
-      if (hint) hint.textContent = "Could not reach the status endpoint. Check your VPS firewall / status server.";
+      setState("offline", "● Offline — could not reach status server");
+      if (hint)
+        hint.textContent =
+          "Could not reach the status endpoint. Check your VPS firewall / status server.";
     });
 })();
