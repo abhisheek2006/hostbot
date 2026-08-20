@@ -7,15 +7,27 @@
     API.base = (window.HOSTBOT_API_URL || "").trim() || location.origin;
 
     API.getToken = function () {
-        return localStorage.getItem("hostbot_token") || "";
+        return localStorage.getItem("hostbot_token") || sessionStorage.getItem("hostbot_token") || "";
     };
 
-    API.setToken = function (t) {
-        localStorage.setItem("hostbot_token", t);
+    API.setToken = function (t, remember) {
+        remember = !!remember;
+        localStorage.removeItem("hostbot_token");
+        sessionStorage.removeItem("hostbot_token");
+        if (t) {
+            (remember ? localStorage : sessionStorage).setItem("hostbot_token", t);
+        }
+        try { localStorage.setItem("hostbot_remember", remember ? "1" : "0"); } catch (e) {}
+    };
+
+    API.isRemembered = function () {
+        if (localStorage.getItem("hostbot_token")) return true;
+        return localStorage.getItem("hostbot_remember") === "1";
     };
 
     API.clearToken = function () {
         localStorage.removeItem("hostbot_token");
+        sessionStorage.removeItem("hostbot_token");
     };
 
     API.api = async function (path, opts) {

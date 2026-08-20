@@ -19,6 +19,9 @@
     var eyeToggle = document.getElementById("eyeToggle");
     var eyeIcon = document.getElementById("eyeIcon");
     var passwordInput = document.getElementById("password");
+    var rememberMe = document.getElementById("rememberMe");
+
+    rememberMe.checked = window.HostBotAPI.isRemembered();
 
     function showError(msg) {
         errorText.textContent = msg;
@@ -59,7 +62,7 @@
 
         try {
             var res = await window.HostBotAPI.login(username, password);
-            window.HostBotAPI.setToken(res.token);
+            window.HostBotAPI.setToken(res.token, rememberMe.checked);
             location.replace("dashboard.html");
         } catch (err) {
             showError(err.message || "Login failed. Please try again.");
