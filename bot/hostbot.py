@@ -1267,7 +1267,7 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
         # Store the zip's .env (parsed before the move) into MongoDB so the
         # dashboard "Env" button reads/edits it and runners inject it at launch.
         base_name = os.path.basename(main_script_name)
-        for old_fn in list(user_files.get(user_id, [])):
+        for old_fn, _old_ft in list(user_files.get(user_id, [])):
             if old_fn != main_script_name and os.path.basename(old_fn) == base_name:
                 logger.info(f"Removing stale duplicate '{old_fn}' before registering '{main_script_name}'")
                 remove_user_file_db(user_id, old_fn)
