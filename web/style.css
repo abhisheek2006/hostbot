@@ -20,7 +20,7 @@ html { scroll-behavior: smooth; }
 body {
     min-height: 100vh;
     font-family: "Inter", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    background: var(--green);
+    background: var(--bg);
     color: var(--text);
     overflow-x: hidden;
 }
@@ -33,18 +33,16 @@ code {
 
 /* Main website container */
 .page {
-    width: min(1100px, calc(100% - 40px));
-    min-height: 600px;
-    margin: 74px auto 0;
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
 
     background:
         radial-gradient(circle at 85% 10%, rgba(40, 211, 154, 0.08), transparent 30%),
         radial-gradient(circle at 15% 60%, rgba(40, 211, 154, 0.05), transparent 35%),
         var(--bg);
 
-    border-radius: 18px 18px 0 0;
     overflow: hidden;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
 }
 
 /* NAVBAR */
@@ -772,9 +770,9 @@ h1 span {
 /* RESPONSIVE */
 @media (max-width: 900px) {
     .page {
-        width: calc(100% - 24px);
-        margin-top: 25px;
-        border-radius: 14px 14px 0 0;
+        width: 100%;
+        margin: 0;
+        border-radius: 0;
     }
 
     nav {
