@@ -1100,6 +1100,22 @@ def create_pending_files_list():
     markup.add(types.InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main'))
     return markup
 
+def _register_upload(user_id, file_name, file_type, message):
+    """Register an uploaded file. Owner/admin uploads are auto-approved;
+    other users' uploads go to the admin approval queue."""
+    save_user_file(user_id, file_name, file_type)
+    if user_id in admin_ids:
+        save_file_approval(user_id, file_name, file_type, FILE_STATUS_APPROVED)
+        bot.send_message(user_id,
+                         f"✅ File `{file_name}` auto-approved (admin)!\n"
+                         f"🚀 You can run it now with /checkfiles or the web dashboard.",
+                         parse_mode='Markdown')
+        logger.info(f"Auto-approved admin upload: {user_id}/{file_name}")
+        return FILE_STATUS_APPROVED
+    save_file_approval(user_id, file_name, file_type, FILE_STATUS_PENDING)
+    send_file_for_approval(message, user_id, file_name, file_type)
+    return FILE_STATUS_PENDING
+
 def handle_zip_file(downloaded_file_content, file_name_zip, message):
     user_id = message.from_user.id
     user_folder = get_user_folder(user_id)
@@ -1117,11 +1133,26 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
             zip_ref.extractall(temp_dir)
             logger.info(f"Extracted zip to {temp_dir}")
 
-        extracted_items = os.listdir(temp_dir)
-        py_files = [f for f in extracted_items if f.endswith('.py')]
-        js_files = [f for f in extracted_items if f.endswith('.js')]
-        req_file = 'requirements.txt' if 'requirements.txt' in extracted_items else None
-        pkg_json = 'package.json' if 'package.json' in extracted_items else None
+        # Flatten a single wrapper folder (zips of a project usually wrap in one).
+        top_entries = os.listdir(temp_dir)
+        top_dirs = [d for d in top_entries if os.path.isdir(os.path.join(temp_dir, d))]
+        top_files = [d for d in top_entries if not os.path.isdir(os.path.join(temp_dir, d))]
+        if len(top_dirs) == 1 and not top_files:
+            inner = os.path.join(temp_dir, top_dirs[0])
+            for item in os.listdir(inner):
+                shutil.move(os.path.join(inner, item), temp_dir)
+            os.rmdir(inner)
+            logger.info(f"Flattened wrapper folder '{top_dirs[0]}'")
+
+        # Search recursively so scripts inside subfolders are found too.
+        extracted = []
+        for root, dirs, files in os.walk(temp_dir):
+            for f in files:
+                extracted.append(os.path.relpath(os.path.join(root, f), temp_dir))
+        py_files = [f for f in extracted if f.endswith('.py')]
+        js_files = [f for f in extracted if f.endswith('.js')]
+        req_file = 'requirements.txt' if 'requirements.txt' in extracted else None
+        pkg_json = 'package.json' if 'package.json' in extracted else None
 
         if req_file:
             req_path = os.path.join(temp_dir, req_file)
@@ -1183,18 +1214,32 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
             shutil.move(src_path, dest_path); moved_count +=1
         logger.info(f"Moved {moved_count} items to {user_folder}")
 
-        save_user_file(user_id, main_script_name, file_type)
-        save_file_approval(user_id, main_script_name, file_type, FILE_STATUS_PENDING)
-        send_file_for_approval(message, user_id, main_script_name, file_type)
-        
+        # Make sure the main script sits at the root of the user folder so the
+        # runner (start/stop/logs) can find it even if it was inside a subfolder.
+        if not os.path.exists(os.path.join(user_folder, main_script_name)):
+            for root, dirs, files in os.walk(user_folder):
+                if main_script_name in files:
+                    shutil.move(os.path.join(root, main_script_name), user_folder)
+                    break
+
+        status = _register_upload(user_id, main_script_name, file_type, message)
+
         logger.info(f"Saved main script '{main_script_name}' ({file_type}) for {user_id} from zip.")
-        bot.reply_to(message, 
-                    f"✅ Files extracted successfully!\n"
-                    f"📁 Main script: `{main_script_name}`\n"
-                    f"📋 Status: **PENDING APPROVAL**\n"
-                    f"👮‍♂️ Admins have been notified.\n"
-                    f"You'll receive a notification when approved.",
-                    parse_mode='Markdown')
+        if status == FILE_STATUS_APPROVED:
+            bot.reply_to(message,
+                        f"✅ Files extracted successfully!\n"
+                        f"📁 Main script: `{main_script_name}`\n"
+                        f"📋 Status: **AUTO-APPROVED** (admin)\n"
+                        f"🚀 You can run it now with /checkfiles or the web dashboard.",
+                        parse_mode='Markdown')
+        else:
+            bot.reply_to(message,
+                        f"✅ Files extracted successfully!\n"
+                        f"📁 Main script: `{main_script_name}`\n"
+                        f"📋 Status: **PENDING APPROVAL**\n"
+                        f"👮‍♂️ Admins have been notified.\n"
+                        f"You'll receive a notification when approved.",
+                        parse_mode='Markdown')
 
     except zipfile.BadZipFile as e:
         logger.error(f"Bad zip file from {user_id}: {e}")
@@ -1209,34 +1254,42 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
 
 def handle_js_file(file_path, script_owner_id, user_folder, file_name, message):
     try:
-        save_user_file(script_owner_id, file_name, 'js')
-        save_file_approval(script_owner_id, file_name, 'js', FILE_STATUS_PENDING)
-        send_file_for_approval(message, script_owner_id, file_name, 'js')
-        
-        bot.reply_to(message,
-                    f"✅ JS file `{file_name}` uploaded successfully!\n"
-                    f"📋 Status: **PENDING APPROVAL**\n"
-                    f"👮‍♂️ Admins have been notified.\n"
-                    f"You'll receive a notification when approved.",
-                    parse_mode='Markdown')
-                    
+        status = _register_upload(script_owner_id, file_name, 'js', message)
+        if status == FILE_STATUS_APPROVED:
+            bot.reply_to(message,
+                        f"✅ JS file `{file_name}` uploaded successfully!\n"
+                        f"📋 Status: **AUTO-APPROVED** (admin)\n"
+                        f"🚀 You can run it now with /checkfiles or the web dashboard.",
+                        parse_mode='Markdown')
+        else:
+            bot.reply_to(message,
+                        f"✅ JS file `{file_name}` uploaded successfully!\n"
+                        f"📋 Status: **PENDING APPROVAL**\n"
+                        f"👮‍♂️ Admins have been notified.\n"
+                        f"You'll receive a notification when approved.",
+                        parse_mode='Markdown')
+
     except Exception as e:
         logger.error(f"Error processing JS file {file_name} for {script_owner_id}: {e}", exc_info=True)
         bot.reply_to(message, f"Error processing JS file: {str(e)}")
 
 def handle_py_file(file_path, script_owner_id, user_folder, file_name, message):
     try:
-        save_user_file(script_owner_id, file_name, 'py')
-        save_file_approval(script_owner_id, file_name, 'py', FILE_STATUS_PENDING)
-        send_file_for_approval(message, script_owner_id, file_name, 'py')
-        
-        bot.reply_to(message,
-                    f"✅ Python file `{file_name}` uploaded successfully!\n"
-                    f"📋 Status: **PENDING APPROVAL**\n"
-                    f"👮‍♂️ Admins have been notified.\n"
-                    f"You'll receive a notification when approved.",
-                    parse_mode='Markdown')
-                    
+        status = _register_upload(script_owner_id, file_name, 'py', message)
+        if status == FILE_STATUS_APPROVED:
+            bot.reply_to(message,
+                        f"✅ Python file `{file_name}` uploaded successfully!\n"
+                        f"📋 Status: **AUTO-APPROVED** (admin)\n"
+                        f"🚀 You can run it now with /checkfiles or the web dashboard.",
+                        parse_mode='Markdown')
+        else:
+            bot.reply_to(message,
+                        f"✅ Python file `{file_name}` uploaded successfully!\n"
+                        f"📋 Status: **PENDING APPROVAL**\n"
+                        f"👮‍♂️ Admins have been notified.\n"
+                        f"You'll receive a notification when approved.",
+                        parse_mode='Markdown')
+
     except Exception as e:
         logger.error(f"Error processing Python file {file_name} for {script_owner_id}: {e}", exc_info=True)
         bot.reply_to(message, f"Error processing Python file: {str(e)}")
