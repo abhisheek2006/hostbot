@@ -628,7 +628,7 @@ def attempt_install_pip(module_name, message):
             error_msg = f"Failed to install `{package_name}` for `{module_name}`.\nLog:\n```\n{result.stderr or result.stdout}\n```"
             logger.error(error_msg)
             if len(error_msg) > 4000: error_msg = error_msg[:4000] + "\n... (Log truncated)"
-            bot.reply_to(message, error_msg, parse_mode='Markdown')
+            bot.reply_to(message, f"Failed to install {package_name} for {module_name}.\n\n{result.stderr or result.stdout}\n\n(Troubleshoot: network blocked or package name invalid.)")
             return False
     except Exception as e:
         error_msg = f"Error installing `{package_name}`: {str(e)}"
@@ -650,7 +650,7 @@ def attempt_install_npm(module_name, user_folder, message):
             error_msg = f"Failed to install Node package `{module_name}`.\nLog:\n```\n{result.stderr or result.stdout}\n```"
             logger.error(error_msg)
             if len(error_msg) > 4000: error_msg = error_msg[:4000] + "\n... (Log truncated)"
-            bot.reply_to(message, error_msg, parse_mode='Markdown')
+            bot.reply_to(message, f"Failed to install Node package {module_name}.\n\n{result.stderr or result.stdout}\n\n(Troubleshoot: network blocked or package name invalid.)")
             return False
     except FileNotFoundError:
          error_msg = "Error: 'npm' not found. Ensure Node.js/npm are installed and in PATH."
@@ -715,7 +715,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
                             return
                     else:
                          error_summary = stderr[:500]
-                         bot.reply_to(message_obj_for_reply, f"Error in script pre-check for '{file_name}':\n```\n{error_summary}\n```\nFix the script.", parse_mode='Markdown')
+                         bot.reply_to(message_obj_for_reply, f"Error in script pre-check for '{file_name}':\n{error_summary}\n\nFix the script.")
                          return
             except subprocess.TimeoutExpired:
                 logger.info("Python Pre-check timed out (>5s), imports likely OK. Killing check process.")
@@ -841,7 +841,7 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
                                  return
                         else: logger.info(f"Skipping npm install for relative/core: {module_name}")
                     error_summary = stderr[:500]
-                    bot.reply_to(message_obj_for_reply, f"Error in JS script pre-check for '{file_name}':\n```\n{error_summary}\n```\nFix script or install manually.", parse_mode='Markdown')
+                    bot.reply_to(message_obj_for_reply, f"Error in JS script pre-check for '{file_name}':\n{error_summary}\n\nFix script or install manually.")
                     return
             except subprocess.TimeoutExpired:
                 logger.info("JS Pre-check timed out (>5s), imports likely OK. Killing check process.")
@@ -1201,7 +1201,7 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
                 error_msg = f"Failed to install Python deps from `{req_file}`.\nLog:\n```\n{e.stderr or e.stdout}\n```"
                 logger.error(error_msg)
                 if len(error_msg) > 4000: error_msg = error_msg[:4000] + "\n... (Log truncated)"
-                bot.reply_to(message, error_msg, parse_mode='Markdown'); return
+                bot.reply_to(message, f"Failed to install Python deps from {req_file}.\n\n{e.stderr or e.stdout}\n\n(Troubleshoot: network blocked or package name invalid.)"); return
             except Exception as e:
                  error_msg = f"Unexpected error installing Python deps: {e}"
                  logger.error(error_msg, exc_info=True); bot.reply_to(message, error_msg); return
@@ -1220,7 +1220,7 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
                 error_msg = f"Failed to install Node deps from `{pkg_json}`.\nLog:\n```\n{e.stderr or e.stdout}\n```"
                 logger.error(error_msg)
                 if len(error_msg) > 4000: error_msg = error_msg[:4000] + "\n... (Log truncated)"
-                bot.reply_to(message, error_msg, parse_mode='Markdown'); return
+                bot.reply_to(message, f"Failed to install Node deps from {pkg_json}.\n\n{e.stderr or e.stdout}\n\n(Troubleshoot: network blocked or package name invalid.)"); return
             except Exception as e:
                  error_msg = f"Unexpected error installing Node deps: {e}"
                  logger.error(error_msg, exc_info=True); bot.reply_to(message, error_msg); return
@@ -2619,7 +2619,7 @@ def logs_bot_callback(call):
             bot.send_message(chat_id_for_reply, f"Logs for `{file_name}` (User `{script_owner_id}`):\n```\n{log_content}\n```", parse_mode='Markdown')
         except Exception as e:
             logger.error(f"Error reading/sending log {log_path}: {e}", exc_info=True)
-            bot.send_message(chat_id_for_reply, f"Error reading log for `{file_name}`.")
+            bot.send_message(chat_id_for_reply, f"Logs for {file_name} (User {script_owner_id}):\n\n{log_content}\n\n(Sent as plain text because Markdown parsing failed.)")
     except (ValueError, IndexError) as e:
         logger.error(f"Error parsing logs callback '{call.data}': {e}")
         bot.answer_callback_query(call.id, "Error: Invalid logs command.", show_alert=True)
