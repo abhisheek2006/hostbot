@@ -138,7 +138,10 @@
             card.addEventListener("click", function (e) {
                 var btn = e.target.closest("[data-action]");
                 if (!btn || btn.disabled) return;
-                handleBotAction(f.file_name, btn.getAttribute("data-action"));
+                var action = btn.getAttribute("data-action");
+                if (action === "logs") { showDetail(f.file_name, "logs"); return; }
+                if (action === "env") { showDetail(f.file_name, "env"); return; }
+                handleBotAction(f.file_name, action);
             });
 
             els.botList.appendChild(card);
@@ -184,13 +187,13 @@
         }
     }
 
-    function showDetail(file) {
+    function showDetail(file, view) {
         state.detailFile = file;
         els.detailTitle.textContent = file;
         els.detailPanel.hidden = false;
         els.detailPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
         var active = document.querySelector(".tab.active");
-        selectTab(active ? active.getAttribute("data-view") : "logs");
+        selectTab(view || (active ? active.getAttribute("data-view") : "logs"));
     }
 
     async function loadLogs(file) {
