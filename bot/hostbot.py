@@ -751,8 +751,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             try:
                 db_env = _db_get_env(script_owner_id, file_name)
                 run_env.update(db_env)
-                if db_env:
-                    _db_set_env(script_owner_id, file_name, db_env)
+                _db_set_env(script_owner_id, file_name, db_env)
             except Exception as e:
                 logger.error(f"Env inject error for {script_key}: {e}")
             process = subprocess.Popen(
@@ -881,8 +880,7 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
             try:
                 db_env = _db_get_env(script_owner_id, file_name)
                 run_env.update(db_env)
-                if db_env:
-                    _db_set_env(script_owner_id, file_name, db_env)
+                _db_set_env(script_owner_id, file_name, db_env)
             except Exception as e:
                 logger.error(f"Env inject error for JS {script_key}: {e}")
             process = subprocess.Popen(
@@ -1268,6 +1266,17 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
 
         # Store the zip's .env (parsed before the move) into MongoDB so the
         # dashboard "Env" button reads/edits it and runners inject it at launch.
+        base_name = os.path.basename(main_script_name)
+        for old_fn in list(user_files.get(user_id, [])):
+            if old_fn != main_script_name and os.path.basename(old_fn) == base_name:
+                logger.info(f"Removing stale duplicate '{old_fn}' before registering '{main_script_name}'")
+                remove_user_file_db(user_id, old_fn)
+                old_dir = os.path.dirname(os.path.join(user_folder, old_fn))
+                if old_dir and os.path.dirname(old_fn) and os.path.exists(old_dir):
+                    shutil.rmtree(old_dir, ignore_errors=True)
+                try: db.user_env.delete_one({'user_id': user_id, 'file_name': old_fn})
+                except Exception as e: logger.error(f"Failed to delete stale env for {old_fn}: {e}")
+
         status = _register_upload(user_id, main_script_name, file_type, message)
 
         if zip_env_data:
