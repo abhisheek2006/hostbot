@@ -169,6 +169,16 @@ The status server also hosts a per-user **dashboard API** (`/api/login`,
 Set that in `web/login.html` and `web/dashboard.html` (auth is handled via
 `web/auth.js` — the token lives in `localStorage`).
 
+> 💡 **Demo / offline mode:** when `HOSTBOT_API_URL` is empty or the VPS status
+> server is unreachable, the pages fall back to **sample data** so you can
+> preview the design and the whole login → dashboard flow. Set
+> `window.HOSTBOT_DEMO_MODE = true` in the HTML files to enable it (any
+> username/password logs in with demo data). The landing page stats
+> (`web/script.js`) also auto-fall back to live-updating demo numbers
+> (uptime ticks every second, counters climb every minute) when the status
+> server is not configured. Set `HOSTBOT_DEMO_MODE = false` and the API/status
+> URLs once your VPS is live to switch to real data.
+
 What the dashboard gives each logged-in user:
 
 - Their details: name, Telegram ID, plan, bot limit and plan expiry

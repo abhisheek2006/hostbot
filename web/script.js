@@ -123,8 +123,46 @@
     if (statusText) statusText.textContent = label;
   }
 
+  // ---------- Demo mode: live-updating sample stats ----------
+  // Used when no status URL is configured or the VPS is unreachable.
+  // Counters climb over time so the page always looks alive.
+  const demoBoot = Date.now();
+  const demoBase = { users: 128, bots: 24, pending: 6 };
+
+  function fmtUptime(secs) {
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${d}d ${h}h ${m}m ${s}s`;
+  }
+
+  function startDemo() {
+    setState("online", "Demo mode · all systems operational");
+    const tick = () => {
+      const secs = Math.floor((Date.now() - demoBoot) / 1000);
+      const mins = Math.floor(secs / 60);
+      const hours = Math.floor(mins / 60);
+      const uptime = fmtUptime(secs);
+      const users = demoBase.users + mins;            // +1 every minute
+      const bots = demoBase.bots + hours + (mins % 3); // +1 every hour
+      const pending = demoBase.pending + mins;         // +1 every minute
+
+      if (heroUptime) heroUptime.textContent = uptime;
+      if (heroBots) heroBots.textContent = bots + " bots online";
+      set("stUptime", uptime);
+      set("stUsers", users);
+      set("stBots", bots);
+      set("stPending", pending);
+      const hint = document.getElementById("statusHint");
+      if (hint) hint.textContent = "Demo data (updates live) - connect your VPS status server for real data.";
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+
   if (!STATUS_URL) {
-    setState("offline", "Status endpoint not configured");
+    startDemo();
     return;
   }
 
@@ -148,6 +186,6 @@
       if (hint) hint.textContent = "Live data from your VPS status server.";
     })
     .catch(() => {
-      setState("offline", "Could not reach status server");
+      startDemo();
     });
 })();

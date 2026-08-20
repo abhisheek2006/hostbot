@@ -78,6 +78,9 @@
         // Point this at your VPS status server when the page is hosted on Vercel, e.g.
         // window.HOSTBOT_API_URL = "https://bot.example.com";
         window.HOSTBOT_API_URL = "";
+        // Demo mode: any username/password works with sample data until the
+        // VPS status server is configured and reachable. Set to false to require real accounts.
+        window.HOSTBOT_DEMO_MODE = true;
     </script>
     <script src="auth.js"></script>
     <script src="login.js"></script>
