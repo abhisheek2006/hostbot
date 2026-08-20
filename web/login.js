@@ -29,13 +29,6 @@
         errorBox.classList.remove("show");
     }
 
-    if (window.HOSTBOT_DEMO_MODE) {
-        var hint = document.querySelector(".auth-hint");
-        if (hint) {
-            hint.innerHTML += '<br><em>(Demo mode: any username and password will log you in.)</em>';
-        }
-    }
-
     eyeToggle.addEventListener("click", function () {
         var show = passwordInput.type === "password";
         passwordInput.type = show ? "text" : "password";

@@ -167,17 +167,15 @@ The status server also hosts a per-user **dashboard API** (`/api/login`,
 ```
 
 Set that in `web/login.html` and `web/dashboard.html` (auth is handled via
-`web/auth.js` — the token lives in `localStorage`).
+`web/auth.js` — the token lives in `localStorage`). Set `window.HOSTBOT_API_URL`
+to your VPS status server, e.g. `http://13.60.251.8:9090`. Login/register are
+verified against the real MongoDB `web_users` collection — no demo fallback.
 
-> 💡 **Demo / offline mode:** when `HOSTBOT_API_URL` is empty or the VPS status
-> server is unreachable, the pages fall back to **sample data** so you can
-> preview the design and the whole login → dashboard flow. Set
-> `window.HOSTBOT_DEMO_MODE = true` in the HTML files to enable it (any
-> username/password logs in with demo data). The landing page stats
-> (`web/script.js`) also auto-fall back to live-updating demo numbers
-> (uptime ticks every second, counters climb every minute) when the status
-> server is not configured. Set `HOSTBOT_DEMO_MODE = false` and the API/status
-> URLs once your VPS is live to switch to real data.
+> 💡 **Live status demo fallback:** the landing page stats (`web/script.js`)
+> automatically fall back to **live-updating demo numbers** (uptime ticks every
+> second, counters climb every minute) only while `HOSTBOT_STATUS_URL` is
+> unreachable or returns no data. Once your VPS status server responds, the
+> page switches to real stats automatically.
 
 What the dashboard gives each logged-in user:
 

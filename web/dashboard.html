@@ -112,12 +112,9 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        // Point this at your VPS status server when the page is hosted on Vercel, e.g.
-        // window.HOSTBOT_API_URL = "https://bot.example.com";
-        window.HOSTBOT_API_URL = "";
-        // Demo mode: show sample dashboard data until the VPS status server is
-        // configured and reachable. Set to false to use real data.
-        window.HOSTBOT_DEMO_MODE = true;
+        // Point this at your VPS status server (must be reachable + running with
+        // STATUS_SERVER_ENABLED=true). Bot data comes from MongoDB.
+        window.HOSTBOT_API_URL = "http://13.60.251.8:9090";
     </script>
     <script src="auth.js"></script>
     <script src="dashboard.js"></script>
