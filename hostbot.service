@@ -9,9 +9,9 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/hostbot
+WorkingDirectory=/opt/hostbot/bot
 EnvironmentFile=/opt/hostbot/.env
-ExecStart=/usr/bin/python3 /opt/hostbot/hostbot.py
+ExecStart=/usr/bin/python3 /opt/hostbot/bot/hostbot.py
 Restart=always
 RestartSec=5
 
