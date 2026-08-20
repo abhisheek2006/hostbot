@@ -747,10 +747,15 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
             if os.name == 'nt':
                  startupinfo = subprocess.STARTUPINFO(); startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                  startupinfo.wShowWindow = subprocess.SW_HIDE
+            run_env = os.environ.copy()
+            try:
+                run_env.update(_db_get_env(script_owner_id, file_name))
+            except Exception as e:
+                logger.error(f"Env inject error for {script_key}: {e}")
             process = subprocess.Popen(
                 [sys.executable, script_path], cwd=user_folder, stdout=log_file, stderr=log_file,
                 stdin=subprocess.PIPE, startupinfo=startupinfo, creationflags=creationflags,
-                encoding='utf-8', errors='ignore'
+                encoding='utf-8', errors='ignore', env=run_env
             )
             logger.info(f"Started Python process {process.pid} for {script_key}")
             bot_scripts[script_key] = {
@@ -869,10 +874,15 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
             if os.name == 'nt':
                  startupinfo = subprocess.STARTUPINFO(); startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                  startupinfo.wShowWindow = subprocess.SW_HIDE
+            run_env = os.environ.copy()
+            try:
+                run_env.update(_db_get_env(script_owner_id, file_name))
+            except Exception as e:
+                logger.error(f"Env inject error for JS {script_key}: {e}")
             process = subprocess.Popen(
                 ['node', script_path], cwd=user_folder, stdout=log_file, stderr=log_file,
                 stdin=subprocess.PIPE, startupinfo=startupinfo, creationflags=creationflags,
-                encoding='utf-8', errors='ignore'
+                encoding='utf-8', errors='ignore', env=run_env
             )
             logger.info(f"Started JS process {process.pid} for {script_key}")
             bot_scripts[script_key] = {
@@ -1157,6 +1167,27 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
         req_file = 'requirements.txt' if 'requirements.txt' in extracted else None
         pkg_json = 'package.json' if 'package.json' in extracted else None
 
+        # Parse a .env shipped in the zip NOW (before files are moved) so it can
+        # be stored in MongoDB and used by the dashboard Env button + runners.
+        zip_env_data = {}
+        env_rel = None
+        if '.env' in extracted:
+            env_rel = '.env'
+        else:
+            for e in extracted:
+                if os.path.basename(e) == '.env':
+                    env_rel = e
+                    break
+        if env_rel:
+            env_abs = os.path.join(temp_dir, env_rel)
+            if os.path.isfile(env_abs):
+                try:
+                    with open(env_abs, 'r', encoding='utf-8', errors='ignore') as f:
+                        zip_env_data = _parse_env_text(f.read())
+                    logger.info(f"Parsed .env from zip for {user_id}: {list(zip_env_data.keys())}")
+                except Exception as e:
+                    logger.error(f"Failed to parse zip .env for {user_id}: {e}")
+
         if req_file:
             req_path = os.path.join(temp_dir, req_file)
             logger.info(f"requirements.txt found, installing: {req_path}")
@@ -1225,16 +1256,12 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
                     shutil.move(os.path.join(root, main_script_name), user_folder)
                     break
 
-        # Link a .env shipped in the zip to the user folder root so the
-        # dashboard "Env" button reads and edits it for this project.
-        if '.env' in extracted and not os.path.exists(os.path.join(user_folder, '.env')):
-            for root, dirs, files in os.walk(user_folder):
-                if '.env' in files:
-                    shutil.move(os.path.join(root, '.env'), os.path.join(user_folder, '.env'))
-                    logger.info(f"Linked .env from zip to {user_folder}/.env")
-                    break
-
+        # Store the zip's .env (parsed before the move) into MongoDB so the
+        # dashboard "Env" button reads/edits it and runners inject it at launch.
         status = _register_upload(user_id, main_script_name, file_type, message)
+
+        if zip_env_data:
+            _db_set_env(user_id, main_script_name, zip_env_data)
 
         logger.info(f"Saved main script '{main_script_name}' ({file_type}) for {user_id} from zip.")
         if status == FILE_STATUS_APPROVED:
@@ -2991,6 +3018,70 @@ signal.signal(signal.SIGTERM, _handle_shutdown_signal)
 if hasattr(signal, 'SIGINT'):
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
+def _db_get_env(user_id, file_name):
+    """Get a user's env vars for a file from MongoDB. Falls back to / migrates
+    the legacy per-user .env file on disk."""
+    try:
+        doc = db.user_env.find_one({'user_id': user_id, 'file_name': file_name})
+        if doc and isinstance(doc.get('env'), dict):
+            return dict(doc['env'])
+    except Exception as e:
+        logger.error(f"DB env read error for {user_id}/{file_name}: {e}")
+    env_data = {}
+    env_path = os.path.join(get_user_folder(user_id), '.env')
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    k, _, v = line.partition('=')
+                    env_data[k.strip()] = v.strip().strip('"').strip("'")
+            if env_data:
+                try:
+                    db.user_env.update_one(
+                        {'user_id': user_id, 'file_name': file_name},
+                        {'$set': {'env': env_data}}, upsert=True)
+                except Exception as e:
+                    logger.error(f"DB env migrate error for {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Legacy .env read error for {user_id}: {e}")
+    return env_data
+
+def _db_set_env(user_id, file_name, env_data):
+    """Store a user's env vars for a file in MongoDB and mirror them to the
+    local .env file (so scripts that read .env themselves still work)."""
+    env_data = dict(env_data or {})
+    try:
+        db.user_env.update_one(
+            {'user_id': user_id, 'file_name': file_name},
+            {'$set': {'env': env_data}}, upsert=True)
+    except Exception as e:
+        logger.error(f"DB env write error for {user_id}/{file_name}: {e}")
+    env_path = os.path.join(get_user_folder(user_id), '.env')
+    try:
+        with open(env_path, 'w', encoding='utf-8') as f:
+            for k, v in env_data.items():
+                v_str = str(v)
+                if ' ' in v_str or '#' in v_str:
+                    v_str = f'"{v_str}"'
+                f.write(f"{k}={v_str}\n")
+    except Exception as e:
+        logger.error(f"Local .env mirror write error for {user_id}: {e}")
+    return env_path
+
+def _parse_env_text(text):
+    """Parse a .env file string into a dict."""
+    env_data = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        env_data[k.strip()] = v.strip().strip('"').strip("'")
+    return env_data
+
 def start_status_server():
     """HTTP server: public /health + /stats for the landing page, plus the
     authenticated web dashboard API (/api/...) backed by WEB_USERS logins."""
@@ -3113,28 +3204,13 @@ def start_status_server():
             'files': files,
         }
 
-    def _read_env(user_id):
+    def _read_env(user_id, file_name):
+        env_data = _db_get_env(user_id, file_name)
         env_path = os.path.join(get_user_folder(user_id), '.env')
-        env_data = {}
-        if os.path.exists(env_path):
-            with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith('#') or '=' not in line:
-                        continue
-                    k, _, v = line.partition('=')
-                    env_data[k.strip()] = v.strip().strip('"').strip("'")
         return env_path, env_data
 
-    def _write_env(user_id, env_data):
-        env_path = os.path.join(get_user_folder(user_id), '.env')
-        with open(env_path, 'w', encoding='utf-8') as f:
-            for k, v in env_data.items():
-                v_str = str(v)
-                if ' ' in v_str or '#' in v_str:
-                    v_str = f'"{v_str}"'
-                f.write(f"{k}={v_str}\n")
-        return env_path
+    def _write_env(user_id, file_name, env_data):
+        return _db_set_env(user_id, file_name, env_data)
 
     def _file_owned(user_id, file_name):
         return any(fn == file_name for fn, _ in user_files.get(user_id, []))
@@ -3285,7 +3361,7 @@ def start_status_server():
                 if not file_name or not _file_owned(sess['telegram_id'], file_name):
                     return self._send({'error': 'file not found'}, 404)
                 try:
-                    _, env_data = _read_env(sess['telegram_id'])
+                    _, env_data = _read_env(sess['telegram_id'], file_name)
                     return self._send({'ok': True, 'env': env_data})
                 except Exception as e:
                     logger.error(f"Web env read error for {file_name}: {e}", exc_info=True)
@@ -3342,7 +3418,7 @@ def start_status_server():
                     return self._send({'error': 'file not found'}, 404)
                 if not isinstance(new_env, dict):
                     return self._send({'error': 'env must be an object of key/value pairs'}, 400)
-                env_path, env_data = _read_env(sess['telegram_id'])
+                env_path, env_data = _read_env(sess['telegram_id'], file_name)
                 env_key_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
                 for k in new_env:
                     if not env_key_re.match(k):
@@ -3350,7 +3426,7 @@ def start_status_server():
                 for k, v in new_env.items():
                     env_data[k] = str(v).replace('\n', ' ').replace('\r', ' ').strip()
                 try:
-                    _write_env(sess['telegram_id'], env_data)
+                    _write_env(sess['telegram_id'], file_name, env_data)
                     return self._send({'ok': True, 'message': f"Environment updated for '{file_name}'"})
                 except Exception as e:
                     logger.error(f"Web env write error for {file_name}: {e}", exc_info=True)
