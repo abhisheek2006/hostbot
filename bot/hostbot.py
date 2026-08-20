@@ -3261,6 +3261,8 @@ def start_status_server():
         return {'ok': False, 'error': 'Unknown action'}
 
     class Handler(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
         def _send(self, payload, code=200):
             body = json.dumps(payload).encode('utf-8')
             self.send_response(code)
@@ -3273,12 +3275,30 @@ def start_status_server():
             self.wfile.write(body)
 
         def _read_body(self):
+            te = (self.headers.get('Transfer-Encoding') or '').lower()
             length = int(self.headers.get('Content-Length', 0) or 0)
-            if length <= 0:
-                return {}
             try:
-                raw = self.rfile.read(length).decode('utf-8', errors='ignore')
-                return json.loads(raw) if raw.strip() else {}
+                if length > 0:
+                    raw = self.rfile.read(length)
+                elif 'chunked' in te:
+                    chunks = []
+                    while True:
+                        line = self.rfile.readline().strip()
+                        if not line:
+                            break
+                        try:
+                            size = int(line.split(b';')[0], 16)
+                        except ValueError:
+                            break
+                        if size == 0:
+                            self.rfile.readline()  # trailing CRLF
+                            break
+                        chunks.append(self.rfile.read(size))
+                        self.rfile.readline()  # CRLF after chunk
+                    raw = b''.join(chunks)
+                else:
+                    raw = self.rfile.read()
+                return json.loads(raw.decode('utf-8', errors='ignore')) if raw.strip() else {}
             except Exception:
                 return {}
 
