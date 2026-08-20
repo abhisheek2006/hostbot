@@ -3121,6 +3121,10 @@ def start_status_server():
             token = (qs.get('token') or [None])[0]
             if not token and body:
                 token = body.get('token')
+            if not token:
+                auth = self.headers.get('Authorization') or ''
+                if auth.startswith('Bearer '):
+                    token = auth[7:].strip()
             return token
 
         def do_OPTIONS(self):
