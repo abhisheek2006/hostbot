@@ -86,5 +86,9 @@
         return API.api("/api/delete", { method: "POST", body: { file: file } });
     };
 
+    API.clearAll = function () {
+        return API.api("/api/clear", { method: "POST", body: {} });
+    };
+
     window.HostBotAPI = API;
 })();

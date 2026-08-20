@@ -185,6 +185,14 @@ code {
 
 .btn-danger:hover:not(:disabled) { background: rgba(255, 92, 108, 0.18); }
 
+.btn-danger-ghost {
+    background: transparent;
+    border-color: rgba(255, 92, 108, 0.35);
+    color: var(--danger);
+}
+
+.btn-danger-ghost:hover:not(:disabled) { background: rgba(255, 92, 108, 0.12); border-color: rgba(255, 92, 108, 0.6); }
+
 .btn-sm { padding: 8px 13px; font-size: 0.85rem; }
 
 /* ============================ LOGIN PAGE ============================ */

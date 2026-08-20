@@ -2563,6 +2563,31 @@ def _delete_user_file(user_id, file_name):
         logger.error(f"Error removing file approval: {e}")
     return {'ok': True, 'message': f"'{file_name}' deleted.", 'deleted': deleted_disk}
 
+def _clear_all_files(user_id):
+    """Stop all of a user's bots and delete every uploaded file, log, folder
+    and DB record (user_files, file_approvals, user_env)."""
+    for key, info in list(bot_scripts.items()):
+        if info.get('script_owner_id') == user_id:
+            logger.info(f"Clear-all: Stopping {key}")
+            try: kill_process_tree(info)
+            except Exception as e: logger.error(f"Clear-all kill error for {key}: {e}")
+            bot_scripts.pop(key, None)
+    user_folder = get_user_folder(user_id)
+    if os.path.exists(user_folder):
+        try:
+            shutil.rmtree(user_folder, ignore_errors=True)
+            logger.info(f"Clear-all: deleted folder {user_folder}")
+        except Exception as e:
+            logger.error(f"Clear-all folder delete error: {e}")
+    for coll in ('user_files', 'file_approvals', 'user_env'):
+        try:
+            deleted = db[coll].delete_many({'user_id': user_id}).deleted_count
+            logger.info(f"Clear-all: removed {deleted} {coll} record(s) for {user_id}")
+        except Exception as e:
+            logger.error(f"Clear-all DB error in {coll} for {user_id}: {e}")
+    if user_id in user_files: del user_files[user_id]
+    return {'ok': True}
+
 def delete_bot_callback(call):
     try:
         _, script_owner_id_str, file_name = call.data.split('_', 2)
@@ -3511,6 +3536,17 @@ def start_status_server():
                 if not file_name or action not in ('start', 'stop', 'restart'):
                     return self._send({'error': 'file and action (start/stop/restart) required'}, 400)
                 return self._send(_bot_action(sess['telegram_id'], file_name, action))
+
+            if path == '/api/clear':
+                sess = _get_session(self._token_from(body))
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                try:
+                    _clear_all_files(sess['telegram_id'])
+                    return self._send({'ok': True, 'message': 'All uploaded files cleared'})
+                except Exception as e:
+                    logger.error(f"Web clear-all error for {sess['telegram_id']}: {e}", exc_info=True)
+                    return self._send({'error': 'failed to clear files'}, 500)
 
             if path == '/api/delete':
                 sess = _get_session(self._token_from(body))

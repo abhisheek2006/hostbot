@@ -333,6 +333,23 @@
         location.replace("index.html");
     });
 
+    document.getElementById("clearAllBtn").addEventListener("click", function () {
+        if (!confirm("Clear ALL uploaded files?\n\nThis stops every running bot and permanently deletes all files, logs and environment variables from your account.")) return;
+        var btn = document.getElementById("clearAllBtn");
+        var original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-circle-notch spinning" aria-hidden="true"></i> Clearing...';
+        API.clearAll().then(function (res) {
+            toast(res.message || "All files cleared");
+            state.detailFile = null;
+            location.reload();
+        }).catch(function (err) {
+            btn.disabled = false;
+            btn.innerHTML = original;
+            toast(err.message || "Failed to clear files", true);
+        });
+    });
+
     document.getElementById("refreshBtn").addEventListener("click", loadDashboard);
     document.getElementById("refreshLogBtn").addEventListener("click", function () {
         if (state.detailFile) loadLogs(state.detailFile);
