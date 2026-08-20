@@ -749,7 +749,10 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
                  startupinfo.wShowWindow = subprocess.SW_HIDE
             run_env = os.environ.copy()
             try:
-                run_env.update(_db_get_env(script_owner_id, file_name))
+                db_env = _db_get_env(script_owner_id, file_name)
+                run_env.update(db_env)
+                if db_env:
+                    _db_set_env(script_owner_id, file_name, db_env)
             except Exception as e:
                 logger.error(f"Env inject error for {script_key}: {e}")
             process = subprocess.Popen(
@@ -876,7 +879,10 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
                  startupinfo.wShowWindow = subprocess.SW_HIDE
             run_env = os.environ.copy()
             try:
-                run_env.update(_db_get_env(script_owner_id, file_name))
+                db_env = _db_get_env(script_owner_id, file_name)
+                run_env.update(db_env)
+                if db_env:
+                    _db_set_env(script_owner_id, file_name, db_env)
             except Exception as e:
                 logger.error(f"Env inject error for JS {script_key}: {e}")
             process = subprocess.Popen(
@@ -3022,9 +3028,21 @@ signal.signal(signal.SIGTERM, _handle_shutdown_signal)
 if hasattr(signal, 'SIGINT'):
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
+def _locate_script_dir(user_id, file_name):
+    """Return the directory that actually contains the script file for a user.
+    Falls back to the user's root folder when the file cannot be found."""
+    folder = get_user_folder(user_id)
+    direct = os.path.join(folder, file_name)
+    if os.path.exists(direct):
+        return os.path.dirname(direct) or folder
+    for root, dirs, files in os.walk(folder):
+        if file_name in files:
+            return root
+    return folder
+
 def _db_get_env(user_id, file_name):
     """Get a user's env vars for a file from MongoDB. Falls back to / migrates
-    the legacy per-user .env file on disk."""
+    the per-script .env file on disk."""
     try:
         doc = db.user_env.find_one({'user_id': user_id, 'file_name': file_name})
         if doc and isinstance(doc.get('env'), dict):
@@ -3032,7 +3050,7 @@ def _db_get_env(user_id, file_name):
     except Exception as e:
         logger.error(f"DB env read error for {user_id}/{file_name}: {e}")
     env_data = {}
-    env_path = os.path.join(get_user_folder(user_id), '.env')
+    env_path = os.path.join(_locate_script_dir(user_id, file_name), '.env')
     if os.path.exists(env_path):
         try:
             with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -3063,7 +3081,7 @@ def _db_set_env(user_id, file_name, env_data):
             {'$set': {'env': env_data}}, upsert=True)
     except Exception as e:
         logger.error(f"DB env write error for {user_id}/{file_name}: {e}")
-    env_path = os.path.join(get_user_folder(user_id), '.env')
+    env_path = os.path.join(_locate_script_dir(user_id, file_name), '.env')
     try:
         with open(env_path, 'w', encoding='utf-8') as f:
             for k, v in env_data.items():
@@ -3209,8 +3227,19 @@ def start_status_server():
         }
 
     def _read_env(user_id, file_name):
-        env_data = _db_get_env(user_id, file_name)
-        env_path = os.path.join(get_user_folder(user_id), '.env')
+        env_data = dict(_db_get_env(user_id, file_name))
+        env_path = os.path.join(_locate_script_dir(user_id, file_name), '.env')
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#') or '=' not in line:
+                            continue
+                        k, _, v = line.partition('=')
+                        env_data.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+            except Exception as e:
+                logger.error(f"Local .env read error for {user_id}/{file_name}: {e}")
         return env_path, env_data
 
     def _write_env(user_id, file_name, env_data):
