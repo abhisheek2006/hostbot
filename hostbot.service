@@ -1,0 +1,19 @@
+# HostBot - systemd unit (VPS without Docker)
+# Install: sudo cp hostbot.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now hostbot
+
+[Unit]
+Description=HostBot Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/hostbot
+EnvironmentFile=/opt/hostbot/.env
+ExecStart=/usr/bin/python3 /opt/hostbot/hostbot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

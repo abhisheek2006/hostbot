@@ -1,0 +1,18 @@
+services:
+  hostbot:
+    build: .
+    image: hostbot:latest
+    container_name: hostbot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/data
+    volumes:
+      - ./data:/data
+    ports:
+      - "9090:9090"
+    # Optional: run inside the bot's own container is not supported.
+    # User .py/.js scripts run as subprocesses inside this container,
+    # which already includes Python 3.14 and Node.js.
+    security_opt:
+      - no-new-privileges:true
