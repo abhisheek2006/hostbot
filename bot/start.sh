@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # HostBot - start script for Linux VPS (systemd/Docker-free option)
-set -e
+# Creates the virtualenv on first run and installs dependencies.
+set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -d ".venv" ]; then
+PYBIN=".venv/bin/python"
+
+if [ ! -x "$PYBIN" ]; then
   echo "Creating virtual environment..."
+  rm -rf .venv
   python3 -m venv .venv
 fi
 
 source .venv/bin/activate
-pip install --quiet -r requirements.txt
+pip install --quiet --disable-pip-version-check -r requirements.txt
 
 exec python hostbot.py

@@ -18,6 +18,7 @@ import sys
 import atexit
 import requests
 import hashlib
+import signal
 from dotenv import load_dotenv
 
 # ====================== HOSTBOT CONFIGURATION ======================
@@ -26,10 +27,31 @@ load_dotenv()
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
+def _env_int(name, default):
+    """Read an integer from the environment, tolerating trailing inline comments
+    (some env-file loaders - e.g. systemd EnvironmentFile - do not strip them)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    raw = str(raw).strip()
+    if '#' in raw:
+        raw = raw.split('#', 1)[0].strip()
+    try:
+        return int(raw)
+    except ValueError:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Invalid integer for {name}={raw!r}, using default {default}")
+        return default
+
 # Persistent data directory.
 #   - VPS / Docker : /data  (mount a persistent volume)
 #   - Local        : ./data (auto-created next to the bot)
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(BASE_DIR, 'data'))
+# Resolve relative DATA_DIR against the bot folder so uploads always land in
+# a predictable place regardless of the working directory the process is started
+# from (local, systemd, Docker all differ).
+if not os.path.isabs(DATA_DIR):
+    DATA_DIR = os.path.normpath(os.path.join(BASE_DIR, DATA_DIR))
 UPLOAD_BOTS_DIR = os.path.join(DATA_DIR, 'upload_bots')
 IROTECH_DIR = os.path.join(DATA_DIR, 'inf')
 
@@ -46,8 +68,8 @@ os.makedirs(IROTECH_DIR, exist_ok=True, mode=0o755)
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 if not TOKEN:
     sys.exit('TELEGRAM_BOT_TOKEN is not set! Copy .env.example to .env and fill in your token.')
-OWNER_ID = int(os.environ.get('OWNER_ID', 0))
-ADMIN_ID = int(os.environ.get('ADMIN_ID', OWNER_ID or 0))
+OWNER_ID = _env_int('OWNER_ID', 0)
+ADMIN_ID = _env_int('ADMIN_ID', OWNER_ID or 0)
 YOUR_USERNAME = os.environ.get('YOUR_USERNAME', '@hostbot')
 UPDATE_CHANNEL = os.environ.get('UPDATE_CHANNEL', 'https://t.me/yourchannel')
 
@@ -58,7 +80,7 @@ A4F_MODEL = os.environ.get('A4F_MODEL', 'provider10-claude-sonnet-4-20250514(cli
 
 # ---- Optional lightweight status server (feeds the Vercel landing page) ----
 STATUS_SERVER_ENABLED = os.environ.get('STATUS_SERVER_ENABLED', 'false').lower() == 'true'
-STATUS_SERVER_PORT = int(os.environ.get('STATUS_SERVER_PORT', 9090))
+STATUS_SERVER_PORT = _env_int('STATUS_SERVER_PORT', 9090)
 STATUS_TOKEN = os.environ.get('STATUS_TOKEN', '')
 
 BOT_START_TIME = datetime.now()
@@ -74,16 +96,16 @@ def get_uptime():
 # Free users can host FREE_BOT_LIMIT bots. Paid plans allow many more.
 ADMIN_LIMIT = 999
 OWNER_LIMIT = float('inf')
-FREE_BOT_LIMIT = int(os.environ.get('FREE_BOT_LIMIT', 3))
-SUBSCRIBED_USER_LIMIT = int(os.environ.get('SUBSCRIBED_USER_LIMIT', 15))
+FREE_BOT_LIMIT = _env_int('FREE_BOT_LIMIT', 3)
+SUBSCRIBED_USER_LIMIT = _env_int('SUBSCRIBED_USER_LIMIT', 15)
 
 # Plan definitions: key -> (label, bot limit)
 # Adjust limits in .env: PLAN_STARTER_LIMIT, PLAN_PRO_LIMIT, PLAN_BUSINESS_LIMIT
 PLANS = {
     'free':     {'name': 'Free',     'limit': FREE_BOT_LIMIT},
-    'starter':  {'name': 'Starter',  'limit': int(os.environ.get('PLAN_STARTER_LIMIT', 8))},
-    'pro':      {'name': 'Pro',      'limit': int(os.environ.get('PLAN_PRO_LIMIT', 20))},
-    'business': {'name': 'Business', 'limit': int(os.environ.get('PLAN_BUSINESS_LIMIT', 50))},
+    'starter':  {'name': 'Starter',  'limit': _env_int('PLAN_STARTER_LIMIT', 8)},
+    'pro':      {'name': 'Pro',      'limit': _env_int('PLAN_PRO_LIMIT', 20)},
+    'business': {'name': 'Business', 'limit': _env_int('PLAN_BUSINESS_LIMIT', 50)},
 }
 
 # ---- Web dashboard login (VPS status server) ----
@@ -91,10 +113,10 @@ PLANS = {
 # Or multiple users: WEB_USERS="user1:pass1:telegramid1;user2:pass2:telegramid2"
 WEB_USERNAME = os.environ.get('WEB_USERNAME', '@ABHISHEEK16')
 WEB_PASSWORD = os.environ.get('WEB_PASSWORD', 'abhisheek2006')
-WEB_OWNER_ID = int(os.environ.get('WEB_OWNER_ID', OWNER_ID or 0))
+WEB_OWNER_ID = _env_int('WEB_OWNER_ID', OWNER_ID or 0)
 WEB_USERS_RAW = os.environ.get('WEB_USERS', '')
 
-WEB_SESSION_TTL = int(os.environ.get('WEB_SESSION_TTL', 86400))  # seconds (24h)
+WEB_SESSION_TTL = _env_int('WEB_SESSION_TTL', 86400)  # seconds (24h)
 web_sessions = {}  # token -> {telegram_id, username, expires}
 
 def load_web_users():
@@ -2866,6 +2888,18 @@ def cleanup():
         else: logger.info(f"Script {key} already removed.")
     logger.warning("Cleanup finished.")
 atexit.register(cleanup)
+
+# Graceful shutdown: systemd and Docker send SIGTERM on stop/restart.
+# atexit does NOT run on signals, so handle them explicitly to kill all
+# child (user-uploaded) processes before exiting.
+def _handle_shutdown_signal(signum, frame):
+    logger.warning(f"Received signal {signum}. Cleaning up child processes...")
+    cleanup()
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+if hasattr(signal, 'SIGINT'):
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
 def start_status_server():
     """HTTP server: public /health + /stats for the landing page, plus the

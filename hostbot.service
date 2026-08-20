@@ -2,18 +2,25 @@
 # Install: sudo cp hostbot.service /etc/systemd/system/
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now hostbot
+#
+# start.sh is responsible for creating the venv and installing
+# dependencies on first run (see bot/start.sh), and hostbot.py
+# loads .env itself via python-dotenv - so no EnvironmentFile is
+# needed (systemd does not strip inline "#" comments anyway).
 
 [Unit]
 Description=HostBot Telegram Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/hostbot/bot
-EnvironmentFile=/opt/hostbot/.env
-ExecStart=/usr/bin/python3 /opt/hostbot/bot/hostbot.py
+ExecStart=/bin/bash /opt/hostbot/bot/start.sh
 Restart=always
 RestartSec=5
+# Give pip time to bootstrap the venv on the very first start
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target

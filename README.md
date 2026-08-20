@@ -24,6 +24,8 @@ running **24/7** — with one-tap start / stop / restart, live logs and automati
 ├── Dockerfile         # VPS via Docker (Python 3.14 + Node.js)
 ├── docker-compose.yml # One-command Docker deployment
 ├── hostbot.service    # systemd unit (Docker-free VPS)
+├── deploy.sh          # One-shot systemd VPS setup (venv + deps + service)
+├── .dockerignore      # Keeps the Docker build context small
 ├── .env.example       # Configuration template (commit this)
 └── .env               # Real secrets — NEVER commit
 ```
@@ -64,6 +66,10 @@ cp .env.example .env
 | `WEB_SESSION_TTL` | Login session lifetime in seconds (default `86400`) |
 
 > ⚠️ `.env` is gitignored on purpose. Keep secrets out of the repository.
+>
+> ⚠️ Avoid inline `#` comments after values (e.g. `KEY=value # note`).
+> `python-dotenv` and Docker Compose strip them, but **systemd's
+> `EnvironmentFile` does not** — keep comments on their own lines.
 
 ---
 
@@ -81,25 +87,42 @@ docker compose logs -f        # watch it boot
 ```
 
 The container bundles **Python 3.14** and **Node.js**, mounts `./data` as a
-persistent volume (uploads + SQLite DB survive restarts) and restarts automatically.
+persistent volume (uploads survive restarts) and restarts automatically.
 
 ### Option B — systemd (no Docker)
 
+Use the one-shot deploy script (creates the venv, installs dependencies,
+installs the systemd unit and starts the service):
+
+```bash
+# on your VPS
+git clone https://github.com/abhisheek2006/hostbot.git
+cd hostbot
+cp .env.example .env          # fill in your token & ids
+
+sudo bash deploy.sh           # installs to /opt/hostbot
+# or: sudo bash deploy.sh /srv/hostbot   for a custom location
+```
+
+Manual alternative (equivalent to what `deploy.sh` does):
+
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv nodejs npm
+sudo apt install -y python3 python3-venv python3-pip nodejs npm
 
 sudo mkdir -p /opt/hostbot
 sudo cp -r bot /opt/hostbot/       # copy the bot folder
-sudo cp .env /opt/hostbot/.env     # your real config
-sudo cp hostbot.service /etc/systemd/system/
+sudo cp .env /opt/hostbot/bot/.env # your real config
+python3 -m venv /opt/hostbot/bot/.venv
+/opt/hostbot/bot/.venv/bin/pip install -r /opt/hostbot/bot/requirements.txt
 
+sudo cp hostbot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now hostbot
-sudo systemctl status hostbot
+sudo systemctl status hostbot     # follow logs: journalctl -u hostbot -f
 ```
 
-To run manually: `cd bot && bash start.sh`.
+To run manually: `cd bot && bash start.sh` (start.sh bootstraps the venv itself).
 
 ---
 
