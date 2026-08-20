@@ -3489,7 +3489,13 @@ def start_status_server():
                     env_data[k] = str(v).replace('\n', ' ').replace('\r', ' ').strip()
                 try:
                     _write_env(sess['telegram_id'], file_name, env_data)
-                    return self._send({'ok': True, 'message': f"Environment updated for '{file_name}'"})
+                    # If the bot is already running, restart it so the new env
+                    # takes effect immediately (env is loaded at process start).
+                    restarted = False
+                    if is_bot_running(sess['telegram_id'], file_name):
+                        _bot_action(sess['telegram_id'], file_name, 'restart')
+                        restarted = True
+                    return self._send({'ok': True, 'message': f"Environment updated for '{file_name}'" + (" and bot restarted with new env" if restarted else "")})
                 except Exception as e:
                     logger.error(f"Web env write error for {file_name}: {e}", exc_info=True)
                     return self._send({'error': 'failed to write env'}, 500)
