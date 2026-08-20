@@ -714,7 +714,7 @@ def run_script(script_path, script_owner_id, user_folder, file_name, message_obj
                             bot.reply_to(message_obj_for_reply, f"Install failed. Cannot run '{file_name}'.")
                             return
                     else:
-                         error_summary = stderr[:500]
+                         error_summary = stderr[:2000]
                          bot.reply_to(message_obj_for_reply, f"Error in script pre-check for '{file_name}':\n{error_summary}\n\nFix the script.")
                          return
             except subprocess.TimeoutExpired:
@@ -840,7 +840,7 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
                                  bot.reply_to(message_obj_for_reply, f"NPM Install failed. Cannot run '{file_name}'.")
                                  return
                         else: logger.info(f"Skipping npm install for relative/core: {module_name}")
-                    error_summary = stderr[:500]
+                    error_summary = stderr[:2000]
                     bot.reply_to(message_obj_for_reply, f"Error in JS script pre-check for '{file_name}':\n{error_summary}\n\nFix script or install manually.")
                     return
             except subprocess.TimeoutExpired:
@@ -1146,13 +1146,17 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
             zip_ref.extractall(temp_dir)
             logger.info(f"Extracted zip to {temp_dir}")
 
-        # Flatten a single wrapper folder (zips of a project usually wrap in one).
+        # Flatten a single wrapper folder (zips of a project usually wrap in one),
+        # even when the zip also has top-level files like .env or requirements.txt.
         top_entries = os.listdir(temp_dir)
         top_dirs = [d for d in top_entries if os.path.isdir(os.path.join(temp_dir, d))]
-        top_files = [d for d in top_entries if not os.path.isdir(os.path.join(temp_dir, d))]
-        if len(top_dirs) == 1 and not top_files:
+        if len(top_dirs) == 1:
             inner = os.path.join(temp_dir, top_dirs[0])
             for item in os.listdir(inner):
+                dest = os.path.join(temp_dir, item)
+                if os.path.exists(dest):
+                    if os.path.isdir(dest): shutil.rmtree(dest)
+                    else: os.remove(dest)
                 shutil.move(os.path.join(inner, item), temp_dir)
             os.rmdir(inner)
             logger.info(f"Flattened wrapper folder '{top_dirs[0]}'")
