@@ -2963,9 +2963,10 @@ def start_status_server():
         user_id = sess['telegram_id']
         username = sess['username']
         plan_key = get_user_plan(user_id)
+        # Keep owner/admin role a secret from the web UI - display as "Pro".
         if plan_key in ('owner', 'admin'):
-            plan_label = plan_key.title()
-            limit = OWNER_LIMIT if plan_key == 'owner' else ADMIN_LIMIT
+            plan_label = PLANS['pro']['name']
+            limit = PLANS['pro']['limit']
         else:
             plan_label = PLANS.get(plan_key, PLANS['free'])['name']
             limit = PLANS.get(plan_key, PLANS['free'])['limit']
@@ -3009,7 +3010,7 @@ def start_status_server():
             'username': username,
             'display_name': display_name,
             'telegram_id': user_id,
-            'plan': plan_key,
+            'plan': 'pro' if plan_key in ('owner', 'admin') else plan_key,
             'plan_label': plan_label,
             'registered_plan': registered_plan,
             'plan_note': plan_note,
