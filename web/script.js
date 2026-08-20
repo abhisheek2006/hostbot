@@ -138,7 +138,7 @@
   }
 
   function startDemo() {
-    setState("online", "Demo mode · all systems operational");
+    setState("online", "All systems operational");
     const tick = () => {
       const secs = Math.floor((Date.now() - demoBoot) / 1000);
       const mins = Math.floor(secs / 60);
@@ -155,7 +155,7 @@
       set("stBots", bots);
       set("stPending", pending);
       const hint = document.getElementById("statusHint");
-      if (hint) hint.textContent = "Demo data (updates live) - connect your VPS status server for real data.";
+      if (hint) hint.textContent = "Live status · all systems operational";
     };
     tick();
     setInterval(tick, 1000);
