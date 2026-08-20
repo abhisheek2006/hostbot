@@ -171,6 +171,13 @@ Set that in `web/login.html` and `web/dashboard.html` (auth is handled via
 to your VPS status server, e.g. `http://13.60.251.8:9090`. Login/register are
 verified against the real MongoDB `web_users` collection — no demo fallback.
 
+> ⚠️ **Mixed content:** if the pages are hosted on HTTPS (e.g. Vercel), the API
+> URL must **also be HTTPS** or the browser blocks the request ("Failed to
+> fetch"). The repo ships a Caddy config (`caddy/Caddyfile`) that adds free
+> HTTPS with a Let's Encrypt cert via `sslip.io` — install it on the VPS with
+> `sudo bash caddy/install.sh` (open TCP 80/443 in the security group), then use
+> `https://13-60-251-8.sslip.io` as the API/status URL.
+
 > 💡 **Live status demo fallback:** the landing page stats (`web/script.js`)
 > automatically fall back to **live-updating demo numbers** (uptime ticks every
 > second, counters climb every minute) only while `HOSTBOT_STATUS_URL` is

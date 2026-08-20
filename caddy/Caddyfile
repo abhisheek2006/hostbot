@@ -1,0 +1,5 @@
+# HostBot HTTPS reverse proxy (Caddy) - free Let's Encrypt cert via sslip.io
+# 13-60-251-8.sslip.io resolves to 13.60.251.8, so Caddy can get a real cert.
+13-60-251-8.sslip.io {
+    reverse_proxy 127.0.0.1:9090
+}

@@ -112,9 +112,8 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        // Point this at your VPS status server (must be reachable + running with
-        // STATUS_SERVER_ENABLED=true). Bot data comes from MongoDB.
-        window.HOSTBOT_API_URL = "http://13.60.251.8:9090";
+        // HTTPS endpoint via Caddy on the VPS (mixed content safe on Vercel).
+        window.HOSTBOT_API_URL = "https://13-60-251-8.sslip.io";
     </script>
     <script src="auth.js"></script>
     <script src="dashboard.js"></script>

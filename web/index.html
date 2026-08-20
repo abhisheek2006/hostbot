@@ -387,9 +387,9 @@
     </footer>
 
     <script>
-        // Point this at your VPS status server. If it is unreachable, the page
-        // automatically shows live-updating demo stats instead.
-        window.HOSTBOT_STATUS_URL = "http://13.60.251.8:9090";
+        // HTTPS endpoint via Caddy on the VPS (mixed content safe on Vercel).
+        // Falls back to ticking stats if it ever becomes unreachable.
+        window.HOSTBOT_STATUS_URL = "https://13-60-251-8.sslip.io";
     </script>
     <script src="script.js"></script>
 </body>
