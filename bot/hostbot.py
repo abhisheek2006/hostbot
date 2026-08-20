@@ -109,6 +109,8 @@ PLANS = {
 }
 
 # ---- Web dashboard login (VPS status server) ----
+# Public web dashboard / landing page URL shown to users.
+WEB_URL = os.environ.get('WEB_URL', 'https://hostbot-seven.vercel.app')
 # Default single user: WEB_USERNAME / WEB_PASSWORD maps to WEB_OWNER_ID
 # Or multiple users: WEB_USERS="user1:pass1:telegramid1;user2:pass2:telegramid2"
 WEB_USERNAME = os.environ.get('WEB_USERNAME', '@ABHISHEEK16')
@@ -229,11 +231,12 @@ COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
     ["📤 Upload File", "📂 Check Files"],
     ["⚡ Bot Speed", "📊 Statistics"],
     ["💠 Plans", "📝 Register"],
-    ["📞 Contact Owner", "🤖 MPX Ai"]
+    ["🌐 Web Dashboard", "🤖 MPX Ai"],
+    ["📞 Contact Owner"]
 ]
 
 ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
-    ["📢 Updates Channel", "/ping"],
+    ["📢 Updates Channel", "🌐 Web Dashboard"],
     ["📤 Upload File", "📂 Check Files"],
     ["⚡ Bot Speed", "📊 Statistics"],
     ["💠 Plans", "💳 Subscriptions"],
@@ -1222,6 +1225,15 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
                     shutil.move(os.path.join(root, main_script_name), user_folder)
                     break
 
+        # Link a .env shipped in the zip to the user folder root so the
+        # dashboard "Env" button reads and edits it for this project.
+        if '.env' in extracted and not os.path.exists(os.path.join(user_folder, '.env')):
+            for root, dirs, files in os.walk(user_folder):
+                if '.env' in files:
+                    shutil.move(os.path.join(root, '.env'), os.path.join(user_folder, '.env'))
+                    logger.info(f"Linked .env from zip to {user_folder}/.env")
+                    break
+
         status = _register_upload(user_id, main_script_name, file_type, message)
 
         logger.info(f"Saved main script '{main_script_name}' ({file_type}) for {user_id} from zip.")
@@ -1340,23 +1352,39 @@ def _logic_send_welcome(message):
         else: user_status = "Free User (Expired Sub)"; remove_subscription_db(user_id)
     else: user_status = "Free User"
 
-    welcome_msg_text = (f"Welcome, {user_name}!\n\nYour User ID: `{user_id}`\n"
-                        f"Username: `@{user_username or 'Not set'}`\n"
-                        f"Your Status: {user_status}{expiry_info}\n"
-                        f"Files Uploaded: {current_files} / {limit_str}\n\n"
-                        f"✅ **IMPORTANT:** All files require admin approval.\n"
-                        f"📋 Files will be reviewed before running.\n\n"
-                        f"Host & run Python (`.py`) or JS (`.js`) scripts.\n"
-                        f"Upload single scripts or `.zip` archives.\n\n"
-                        f"Use buttons or type commands.")
+    welcome_msg_text = (f"👋 <b>Welcome, {user_name}!</b>\n\n"
+                        f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
+                        f"👤 <b>Username:</b> @{user_username or 'Not set'}\n"
+                        f"🎖 <b>Status:</b> {user_status}{expiry_info}\n"
+                        f"📁 <b>Files:</b> {current_files} / {limit_str}\n\n"
+                        f"🚀 <b>Host & run your Python / JS bots</b>\n"
+                        f"Upload single <code>.py</code>/<code>.js</code> scripts or "
+                        f"a <code>.zip</code> project. That's it!\n\n"
+                        f"💡 Use the menu buttons below or type commands like "
+                        f"<code>/checkfiles</code> and <code>/web</code>.")
     main_reply_markup = create_reply_keyboard_main_menu(user_id)
+    welcome_buttons = types.InlineKeyboardMarkup()
+    welcome_buttons.add(types.InlineKeyboardButton("🌐 Open Web Dashboard", url=WEB_URL))
     try:
         if photo_file_id: bot.send_photo(chat_id, photo_file_id)
-        bot.send_message(chat_id, welcome_msg_text, reply_markup=main_reply_markup, parse_mode='Markdown')
+        bot.send_message(chat_id, welcome_msg_text, reply_markup=main_reply_markup, parse_mode='HTML')
+        bot.send_message(chat_id, "Manage everything from your browser 👇", reply_markup=welcome_buttons)
     except Exception as e:
         logger.error(f"Error sending welcome to {user_id}: {e}", exc_info=True)
-        try: bot.send_message(chat_id, welcome_msg_text, reply_markup=main_reply_markup, parse_mode='Markdown')
+        try: bot.send_message(chat_id, welcome_msg_text, reply_markup=main_reply_markup, parse_mode='HTML')
         except Exception as fallback_e: logger.error(f"Fallback send_message failed for {user_id}: {fallback_e}")
+
+def _logic_web_dashboard(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🌐 Open Web Dashboard", url=WEB_URL))
+    markup.add(types.InlineKeyboardButton("🔐 Login", url=f"{WEB_URL}/login.html"))
+    bot.reply_to(message,
+                 "🌐 <b>HostBot Web Dashboard</b>\n\n"
+                 "Manage all your bots from the browser: start, stop, view logs, "
+                 "edit env vars and delete files.\n\n"
+                 "🔐 Log in with your username & password (or /register in this bot "
+                 "to create an account).",
+                 parse_mode='HTML', reply_markup=markup)
 
 def _logic_updates_channel(message):
     markup = types.InlineKeyboardMarkup()
@@ -1812,6 +1840,7 @@ def regplan_callback(call):
 
 BUTTON_TEXT_TO_LOGIC = {
     "📢 Updates Channel": _logic_updates_channel,
+    "🌐 Web Dashboard": _logic_web_dashboard,
     "📤 Upload File": _logic_upload_file,
     "📂 Check Files": _logic_check_files,
     "⚡ Bot Speed": _logic_bot_speed,
@@ -1834,8 +1863,12 @@ def handle_button_text(message):
     if logic_func: logic_func(message)
     else: logger.warning(f"Button text '{message.text}' matched but no logic func.")
 
-@bot.message_handler(commands=['updateschannel'])
-def command_updates_channel(message): _logic_updates_channel(message)
+@bot.message_handler(commands=['updateschannel', 'web', 'dashboard'])
+def command_updates_channel(message):
+    if message.text.startswith('/web') or message.text.startswith('/dashboard'):
+        _logic_web_dashboard(message)
+    else:
+        _logic_updates_channel(message)
 @bot.message_handler(commands=['uploadfile'])
 def command_upload_file(message): _logic_upload_file(message)
 @bot.message_handler(commands=['checkfiles'])
@@ -1850,7 +1883,7 @@ def command_subscriptions(message): _logic_subscriptions_panel(message)
 def command_statistics(message): _logic_statistics(message)
 @bot.message_handler(commands=['broadcast'])
 def command_broadcast(message): _logic_broadcast_init(message)
-@bot.message_handler(commands=['lockbot'])
+@bot.message_handler(commands=['lockbot', 'maintenance'])
 def command_lock_bot(message): _logic_toggle_lock_bot(message)
 @bot.message_handler(commands=['adminpanel'])
 def command_admin_panel(message): _logic_admin_panel(message)
@@ -2454,6 +2487,36 @@ def restart_bot_callback(call):
             bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(script_owner_id_err, file_name_err, False))
         except Exception as e_btn: logger.error(f"Failed to update buttons after restart error: {e_btn}")
 
+def _delete_user_file(user_id, file_name):
+    """Stop (if running) and delete a user's file + log + DB records."""
+    user_files_list = user_files.get(user_id, [])
+    if not any(f[0] == file_name for f in user_files_list):
+        return {'ok': False, 'error': 'File not found in your account'}
+    script_key = f"{user_id}_{file_name}"
+    if is_bot_running(user_id, file_name):
+        logger.info(f"Delete: Stopping {script_key}...")
+        process_info = bot_scripts.get(script_key)
+        if process_info: kill_process_tree(process_info)
+        if script_key in bot_scripts: del bot_scripts[script_key]
+        time.sleep(0.5)
+    user_folder = get_user_folder(user_id)
+    file_path = os.path.join(user_folder, file_name)
+    log_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
+    deleted_disk = []
+    if os.path.exists(file_path):
+        try: os.remove(file_path); deleted_disk.append(file_name); logger.info(f"Deleted file: {file_path}")
+        except OSError as e: logger.error(f"Error deleting {file_path}: {e}")
+    if os.path.exists(log_path):
+        try: os.remove(log_path); deleted_disk.append(os.path.basename(log_path)); logger.info(f"Deleted log: {log_path}")
+        except OSError as e: logger.error(f"Error deleting log {log_path}: {e}")
+    remove_user_file_db(user_id, file_name)
+    try:
+        db.file_approvals.delete_one({'user_id': user_id, 'file_name': file_name})
+        logger.info(f"Removed file approval record: {user_id}/{file_name}")
+    except Exception as e:
+        logger.error(f"Error removing file approval: {e}")
+    return {'ok': True, 'message': f"'{file_name}' deleted.", 'deleted': deleted_disk}
+
 def delete_bot_callback(call):
     try:
         _, script_owner_id_str, file_name = call.data.split('_', 2)
@@ -2465,39 +2528,13 @@ def delete_bot_callback(call):
         if not (requesting_user_id == script_owner_id or requesting_user_id in admin_ids):
             bot.answer_callback_query(call.id, "Permission denied.", show_alert=True); return
 
-        user_files_list = user_files.get(script_owner_id, [])
-        if not any(f[0] == file_name for f in user_files_list):
+        if not any(f[0] == file_name for f in user_files.get(script_owner_id, [])):
             bot.answer_callback_query(call.id, "File not found.", show_alert=True); check_files_callback(call); return
 
         bot.answer_callback_query(call.id, f"Deleting {file_name} for user {script_owner_id}...")
-        script_key = f"{script_owner_id}_{file_name}"
-        if is_bot_running(script_owner_id, file_name):
-            logger.info(f"Delete: Stopping {script_key}...")
-            process_info = bot_scripts.get(script_key)
-            if process_info: kill_process_tree(process_info)
-            if script_key in bot_scripts: del bot_scripts[script_key]
-            time.sleep(0.5)
+        result = _delete_user_file(script_owner_id, file_name)
 
-        user_folder = get_user_folder(script_owner_id)
-        file_path = os.path.join(user_folder, file_name)
-        log_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
-        deleted_disk = []
-        if os.path.exists(file_path):
-            try: os.remove(file_path); deleted_disk.append(file_name); logger.info(f"Deleted file: {file_path}")
-            except OSError as e: logger.error(f"Error deleting {file_path}: {e}")
-        if os.path.exists(log_path):
-            try: os.remove(log_path); deleted_disk.append(os.path.basename(log_path)); logger.info(f"Deleted log: {log_path}")
-            except OSError as e: logger.error(f"Error deleting log {log_path}: {e}")
-
-        remove_user_file_db(script_owner_id, file_name)
-
-        try:
-            db.file_approvals.delete_one({'user_id': script_owner_id, 'file_name': file_name})
-            logger.info(f"Removed file approval record: {script_owner_id}/{file_name}")
-        except Exception as e:
-            logger.error(f"Error removing file approval: {e}")
-        
-        deleted_str = ", ".join(f"`{f}`" for f in deleted_disk) if deleted_disk else "associated files"
+        deleted_str = ", ".join(f"`{f}`" for f in result.get('deleted', [])) if result.get('deleted') else "associated files"
         try:
             bot.edit_message_text(
                 f"Record `{file_name}` (User `{script_owner_id}`) and {deleted_str} deleted!",
@@ -3328,6 +3365,15 @@ def start_status_server():
                 if not file_name or action not in ('start', 'stop', 'restart'):
                     return self._send({'error': 'file and action (start/stop/restart) required'}, 400)
                 return self._send(_bot_action(sess['telegram_id'], file_name, action))
+
+            if path == '/api/delete':
+                sess = _get_session(self._token_from(body))
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                file_name = body.get('file')
+                if not file_name:
+                    return self._send({'error': 'file required'}, 400)
+                return self._send(_delete_user_file(sess['telegram_id'], file_name))
 
             self._send({'error': 'not found'}, 404)
 

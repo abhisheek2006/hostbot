@@ -122,7 +122,8 @@
                 '<button class="btn btn-danger btn-sm" data-action="stop" ' + (running ? "" : "disabled") + '><i class="ph ph-stop" aria-hidden="true"></i> Stop</button>' +
                 '<button class="btn btn-ghost btn-sm" data-action="restart" ' + (running ? "" : "disabled") + '><i class="ph ph-arrow-clockwise" aria-hidden="true"></i> Restart</button>' +
                 '<button class="btn btn-ghost btn-sm" data-action="logs"><i class="ph ph-file-text" aria-hidden="true"></i> Logs</button>' +
-                '<button class="btn btn-ghost btn-sm" data-action="env" ' + (fileIs(f) ? "" : "disabled") + '><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Env</button>';
+                '<button class="btn btn-ghost btn-sm" data-action="env" ' + (fileIs(f) ? "" : "disabled") + '><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Env</button>' +
+                '<button class="btn btn-ghost btn-sm btn-danger-outline" data-action="delete"><i class="ph ph-trash" aria-hidden="true"></i> Delete</button>';
 
             card.innerHTML =
                 '<div class="bot-head">' +
@@ -145,6 +146,17 @@
     }
 
     async function handleBotAction(file, action) {
+        if (action === "delete") {
+            if (!confirm("Delete '" + file + "'? This stops it and removes the file and logs.")) return;
+            try {
+                var del = await API.deleteFile(file);
+                toast(del.message || "File deleted");
+                await loadDashboard();
+            } catch (err) {
+                toast(err.message || "Delete failed", true);
+            }
+            return;
+        }
         if ((action === "stop" || action === "restart") && !confirm(action === "stop" ? "Stop '" + file + "'?" : "Restart '" + file + "'?")) {
             return;
         }

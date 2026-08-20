@@ -70,5 +70,9 @@
         return API.api("/api/bot", { method: "POST", body: { file: file, action: action } });
     };
 
+    API.deleteFile = function (file) {
+        return API.api("/api/delete", { method: "POST", body: { file: file } });
+    };
+
     window.HostBotAPI = API;
 })();
