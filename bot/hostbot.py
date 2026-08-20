@@ -110,7 +110,7 @@ PLANS = {
 
 # ---- Web dashboard login (VPS status server) ----
 # Public web dashboard / landing page URL shown to users.
-WEB_URL = os.environ.get('WEB_URL', 'https://hostbot-seven.vercel.app')
+WEB_URL = os.environ.get('WEB_URL', 'https://hostbot-fawn.vercel.app')
 # Default single user: WEB_USERNAME / WEB_PASSWORD maps to WEB_OWNER_ID
 # Or multiple users: WEB_USERS="user1:pass1:telegramid1;user2:pass2:telegramid2"
 WEB_USERNAME = os.environ.get('WEB_USERNAME', '@ABHISHEEK16')
