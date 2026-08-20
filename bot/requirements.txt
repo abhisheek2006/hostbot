@@ -2,3 +2,4 @@ pyTelegramBotAPI==4.30.3
 psutil==7.0.0
 requests==2.32.4
 python-dotenv==1.1.1
+pymongo>=4.8,<5

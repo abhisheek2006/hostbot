@@ -28,12 +28,13 @@
                 <a href="#features">Features</a>
                 <a href="#commands">Commands</a>
                 <a href="#how">How it works</a>
-                <a href="#admin">Admin</a>
+                <a href="#plans">Plans</a>
                 <a href="#status">Status</a>
             </nav>
 
             <div class="nav-actions">
-                <a href="https://t.me/hostbot" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">Open in Telegram</a>
+                <a href="register.html" class="btn btn-ghost btn-sm"><i class="ph ph-user-plus" aria-hidden="true"></i> Register</a>
+                <a href="login.html" class="btn btn-primary btn-sm"><i class="ph ph-sign-in" aria-hidden="true"></i> Login</a>
                 <button class="nav-burger" id="navBurger" aria-label="Menu" aria-expanded="false">
                     <span></span><span></span><span></span>
                 </button>
@@ -61,7 +62,7 @@
                     </p>
 
                     <div class="hero-cta">
-                        <a href="https://t.me/hostbot" target="_blank" rel="noopener" class="btn btn-primary btn-lg magnetic">
+                        <a href="https://t.me/Fferss_bot" target="_blank" rel="noopener" class="btn btn-primary btn-lg magnetic">
                             Open in Telegram
                             <i class="ph ph-arrow-up-right" aria-hidden="true"></i>
                         </a>
@@ -186,6 +187,7 @@
                             <li><code>/stats</code><span>bot statistics</span></li>
                             <li><code>/speed</code><span>API response time</span></li>
                             <li><code>/uptime</code><span>host uptime</span></li>
+                            <li><code>/plans</code><span>view hosting plans</span></li>
                             <li><code>/mpx</code><span>ask the AI assistant</span></li>
                             <li><code>/help</code><span>show this help</span></li>
                         </ul>
@@ -254,14 +256,74 @@
                     </article>
                     <article class="card cell">
                         <div class="card-icon"><i class="ph ph-crown-simple"></i></div>
-                        <h3>Subscriptions</h3>
-                        <p>Grant extra file slots with day-based expiry. Free users get 2, premium 15, admins unlimited.</p>
+                        <h3>Subscriptions &amp; plans</h3>
+                        <p>Grant slots with day-based expiry and pick a plan. Free gets 3 bots, paid plans scale up to 50+.</p>
                     </article>
                     <article class="card cell tint">
                         <div class="card-icon"><i class="ph ph-megaphone"></i></div>
                         <h3>Broadcast</h3>
                         <p>Flood-safe messaging with batch delays and automatic retry for every active user.</p>
                     </article>
+                </div>
+            </div>
+        </section>
+
+        <!-- PLANS + DASHBOARD -->
+        <section class="section alt" id="plans">
+            <div class="container">
+                <div class="section-head">
+                    <h2 class="section-title">Hosting plans</h2>
+                    <p class="section-sub">Free plan runs up to 3 bots. Upgrade for more slots and priority control.</p>
+                </div>
+
+                <div class="plans-grid">
+                    <article class="plan-card">
+                        <div class="plan-name">Free</div>
+                        <div class="plan-price">$0<span>/mo</span></div>
+                        <p class="plan-desc">Start hosting your first bots today.</p>
+                        <ul class="plan-feats">
+                            <li><i class="ph ph-check"></i> 3 bots</li>
+                            <li><i class="ph ph-check"></i> Python &amp; Node.js</li>
+                            <li><i class="ph ph-check"></i> Live logs</li>
+                            <li><i class="ph ph-check"></i> Admin approval</li>
+                        </ul>
+                        <a href="https://t.me/Fferss_bot" target="_blank" rel="noopener" class="btn btn-ghost">Start free</a>
+                    </article>
+
+                    <article class="plan-card featured">
+                        <div class="plan-badge">Popular</div>
+                        <div class="plan-name">Pro</div>
+                        <div class="plan-price">$9<span>/mo</span></div>
+                        <p class="plan-desc">For serious bot builders.</p>
+                        <ul class="plan-feats">
+                            <li><i class="ph ph-check"></i> 20 bots</li>
+                            <li><i class="ph ph-check"></i> Priority support</li>
+                            <li><i class="ph ph-check"></i> Env manager in dashboard</li>
+                            <li><i class="ph ph-check"></i> One-tap restart</li>
+                        </ul>
+                        <a href="https://t.me/Fferss_bot" target="_blank" rel="noopener" class="btn btn-primary">Go Pro</a>
+                    </article>
+
+                    <article class="plan-card">
+                        <div class="plan-name">Business</div>
+                        <div class="plan-price">$29<span>/mo</span></div>
+                        <p class="plan-desc">Scale to a full fleet.</p>
+                        <ul class="plan-feats">
+                            <li><i class="ph ph-check"></i> 50 bots</li>
+                            <li><i class="ph ph-check"></i> Everything in Pro</li>
+                            <li><i class="ph ph-check"></i> Priority queue</li>
+                            <li><i class="ph ph-check"></i> Dedicated support</li>
+                        </ul>
+                        <a href="https://t.me/Fferss_bot" target="_blank" rel="noopener" class="btn btn-ghost">Contact us</a>
+                    </article>
+                </div>
+
+                <div class="dash-cta">
+                    <div>
+                        <h3><i class="ph ph-gauge" aria-hidden="true"></i> Manage everything from the web</h3>
+                        <p>Log in to see your bots, live status, per-bot log files and edit each bot's environment variables from your browser.</p>
+                    </div>
+                    <a href="login.html" class="btn btn-primary btn-lg magnetic"><i class="ph ph-sign-in" aria-hidden="true"></i> Login to dashboard</a>
                 </div>
             </div>
         </section>

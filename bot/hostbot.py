@@ -6,10 +6,10 @@ import zipfile
 import tempfile
 import shutil
 from telebot import types
+from pymongo import MongoClient
 import time
 from datetime import datetime, timedelta
 import psutil
-import sqlite3
 import json
 import logging
 import threading
@@ -17,6 +17,7 @@ import re
 import sys
 import atexit
 import requests
+import hashlib
 from dotenv import load_dotenv
 
 # ====================== HOSTBOT CONFIGURATION ======================
@@ -31,7 +32,11 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.environ.get('DATA_DIR', os.path.join(BASE_DIR, 'data'))
 UPLOAD_BOTS_DIR = os.path.join(DATA_DIR, 'upload_bots')
 IROTECH_DIR = os.path.join(DATA_DIR, 'inf')
-DATABASE_PATH = os.path.join(IROTECH_DIR, 'bot_data.db')
+
+# ---- MongoDB (hosting plans, users, files, approvals) ----
+# Connection string from MongoDB Atlas, e.g. mongodb+srv://user:pass@cluster.mongodb.net/
+MONGO_URI = os.environ.get('MONGO_URI', '')
+MONGO_DB_NAME = os.environ.get('MONGO_DB_NAME', 'hostbot')
 
 # Create directories with proper permissions
 os.makedirs(UPLOAD_BOTS_DIR, exist_ok=True, mode=0o755)
@@ -65,10 +70,113 @@ def get_uptime():
     minutes, seconds = divmod(remainder, 60)
     return f"{days}d {hours}h {minutes}m {seconds}s"
 
-FREE_USER_LIMIT = 2
-SUBSCRIBED_USER_LIMIT = 15
+# ---- Hosting plans ----
+# Free users can host FREE_BOT_LIMIT bots. Paid plans allow many more.
 ADMIN_LIMIT = 999
 OWNER_LIMIT = float('inf')
+FREE_BOT_LIMIT = int(os.environ.get('FREE_BOT_LIMIT', 3))
+SUBSCRIBED_USER_LIMIT = int(os.environ.get('SUBSCRIBED_USER_LIMIT', 15))
+
+# Plan definitions: key -> (label, bot limit)
+# Adjust limits in .env: PLAN_STARTER_LIMIT, PLAN_PRO_LIMIT, PLAN_BUSINESS_LIMIT
+PLANS = {
+    'free':     {'name': 'Free',     'limit': FREE_BOT_LIMIT},
+    'starter':  {'name': 'Starter',  'limit': int(os.environ.get('PLAN_STARTER_LIMIT', 8))},
+    'pro':      {'name': 'Pro',      'limit': int(os.environ.get('PLAN_PRO_LIMIT', 20))},
+    'business': {'name': 'Business', 'limit': int(os.environ.get('PLAN_BUSINESS_LIMIT', 50))},
+}
+
+# ---- Web dashboard login (VPS status server) ----
+# Default single user: WEB_USERNAME / WEB_PASSWORD maps to WEB_OWNER_ID
+# Or multiple users: WEB_USERS="user1:pass1:telegramid1;user2:pass2:telegramid2"
+WEB_USERNAME = os.environ.get('WEB_USERNAME', '@ABHISHEEK16')
+WEB_PASSWORD = os.environ.get('WEB_PASSWORD', 'abhisheek2006')
+WEB_OWNER_ID = int(os.environ.get('WEB_OWNER_ID', OWNER_ID or 0))
+WEB_USERS_RAW = os.environ.get('WEB_USERS', '')
+
+WEB_SESSION_TTL = int(os.environ.get('WEB_SESSION_TTL', 86400))  # seconds (24h)
+web_sessions = {}  # token -> {telegram_id, username, expires}
+
+def load_web_users():
+    """Returns dict username -> {'password': ..., 'telegram_id': ...}"""
+    users = {}
+    try:
+        if WEB_USERS_RAW:
+            for entry in WEB_USERS_RAW.split(';'):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                parts = entry.split(':')
+                if len(parts) >= 3:
+                    users[parts[0].strip()] = {
+                        'password': parts[1],
+                        'telegram_id': int(parts[2].strip()),
+                    }
+    except Exception as e:
+        logger.error(f"Error parsing WEB_USERS: {e}", exc_info=True)
+    if not users and WEB_USERNAME:
+        users[WEB_USERNAME] = {'password': WEB_PASSWORD, 'telegram_id': WEB_OWNER_ID}
+    return users
+
+WEB_USERS = load_web_users()
+
+# Pending registrations started from the bot: user_id -> {'username': ..., 'password': ...}
+pending_regs = {}
+
+def _hash_password(password, salt):
+    return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000).hex()
+
+def register_web_user(username, password, telegram_id, plan='free'):
+    """Create a web dashboard account (bot or /api/register). Returns (ok, message)."""
+    username = (username or '').strip()
+    if not re.match(r'^[A-Za-z0-9_]{3,24}$', username):
+        return False, 'Username must be 3-24 characters (letters, digits, underscore).'
+    if not password or len(password) < 6:
+        return False, 'Password must be at least 6 characters.'
+    plan = (plan or 'free').lower()
+    if plan not in PLANS:
+        return False, f"Plan must be one of: {', '.join(PLANS.keys())}."
+    if not isinstance(telegram_id, int) or telegram_id <= 0:
+        return False, 'Invalid Telegram ID.'
+    if WEB_USERS.get(username) or db.web_users.find_one({'username': username}):
+        return False, 'This username is already taken.'
+    if db.web_users.find_one({'telegram_id': telegram_id}):
+        return False, 'This Telegram ID is already registered.'
+    salt = os.urandom(16)
+    db.web_users.insert_one({
+        'username': username,
+        'salt': salt.hex(),
+        'password_hash': _hash_password(password, salt),
+        'telegram_id': telegram_id,
+        'plan': plan,
+        'created_at': datetime.now().isoformat(),
+    })
+    if plan != 'free':
+        try:
+            bot.send_message(
+                OWNER_ID,
+                f"🆕 Web registration with paid plan\nUser: `{username}`\n"
+                f"Telegram ID: `{telegram_id}`\nChosen plan: `{plan}`\n"
+                f"Activate: `/subscriptions` -> Add `{telegram_id} 30 {plan}`",
+                parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Failed to notify owner of paid registration: {e}")
+    return True, 'Account created.'
+
+def verify_web_login(username, password):
+    """Check .env WEB_USERS first, then MongoDB web_users. Returns (telegram_id, account_doc|None)."""
+    env_user = WEB_USERS.get(username or '')
+    if env_user and env_user['password'] == password:
+        return env_user['telegram_id'], None
+    doc = db.web_users.find_one({'username': (username or '').strip()})
+    if doc:
+        try:
+            salt = bytes.fromhex(doc['salt'])
+            if _hash_password(password or '', salt) == doc['password_hash']:
+                return doc['telegram_id'], doc
+        except Exception as e:
+            logger.error(f"Error verifying password for '{username}': {e}", exc_info=True)
+    return None, None
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -98,6 +206,7 @@ COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
     ["📢 Updates Channel", "⏱ Uptime"],
     ["📤 Upload File", "📂 Check Files"],
     ["⚡ Bot Speed", "📊 Statistics"],
+    ["💠 Plans", "📝 Register"],
     ["📞 Contact Owner", "🤖 MPX Ai"]
 ]
 
@@ -105,69 +214,62 @@ ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
     ["📢 Updates Channel", "/ping"],
     ["📤 Upload File", "📂 Check Files"],
     ["⚡ Bot Speed", "📊 Statistics"],
-    ["💳 Subscriptions", "📢 Broadcast"],
+    ["💠 Plans", "💳 Subscriptions"],
+    ["📝 Register", "📢 Broadcast"],
     ["🔒 Lock Bot", "🟢 Running All Code"],
     ["👑 Admin Panel", "📞 Contact Owner"],
     ["🤖 MPX Ai", "⏱ Uptime"],
 ]
 
+mongo_client = None
+db = None
+
 def init_db():
-    logger.info(f"Initializing database at: {DATABASE_PATH}")
+    """Connect to MongoDB Atlas and ensure required collections + indexes."""
+    global mongo_client, db
+    if not MONGO_URI:
+        logger.error("MONGO_URI is not set. Copy .env.example to .env and set your MongoDB connection string.")
+        raise SystemExit("MONGO_URI required (MongoDB Atlas connection string)")
+    logger.info(f"Connecting to MongoDB database: {MONGO_DB_NAME}")
     try:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS subscriptions
-                     (user_id INTEGER PRIMARY KEY, expiry TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_files
-                     (user_id INTEGER, file_name TEXT, file_type TEXT,
-                      PRIMARY KEY (user_id, file_name))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS active_users
-                     (user_id INTEGER PRIMARY KEY)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS admins
-                     (user_id INTEGER PRIMARY KEY)''')
-        
-        # File approvals table
-        c.execute('''CREATE TABLE IF NOT EXISTS file_approvals
-                     (user_id INTEGER, file_name TEXT, status TEXT, 
-                      reviewed_by INTEGER, review_time TEXT, file_type TEXT,
-                      uploaded_time TEXT, message_id INTEGER,
-                      PRIMARY KEY (user_id, file_name))''')
-        
-        c.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (OWNER_ID,))
-        if ADMIN_ID != OWNER_ID:
-             c.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (ADMIN_ID,))
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully.")
+        mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=8000)
+        mongo_client.admin.command('ping')
+        db = mongo_client[MONGO_DB_NAME]
+        db.subscriptions.create_index([('user_id', 1)], unique=True)
+        db.user_files.create_index([('user_id', 1), ('file_name', 1)], unique=True)
+        db.active_users.create_index([('user_id', 1)], unique=True)
+        db.admins.create_index([('user_id', 1)], unique=True)
+        db.file_approvals.create_index([('user_id', 1), ('file_name', 1)], unique=True)
+        db.web_users.create_index([('username', 1)], unique=True)
+        db.web_users.create_index([('telegram_id', 1)], unique=True)
+        logger.info("MongoDB connected successfully.")
     except Exception as e:
-        logger.error(f"Database initialization error: {e}", exc_info=True)
+        logger.error(f"MongoDB connection error: {e}", exc_info=True)
+        raise SystemExit(f"MongoDB connection failed: {e}")
 
 def load_data():
-    logger.info("Loading data from database...")
+    logger.info("Loading data from MongoDB...")
     try:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-
-        c.execute('SELECT user_id, expiry FROM subscriptions')
-        for user_id, expiry in c.fetchall():
+        for doc in db.subscriptions.find({}):
+            user_id = doc['user_id']
             try:
-                user_subscriptions[user_id] = {'expiry': datetime.fromisoformat(expiry)}
-            except ValueError:
-                logger.warning(f"Invalid expiry date format for user {user_id}: {expiry}. Skipping.")
+                plan = doc.get('plan', 'pro')
+                user_subscriptions[user_id] = {
+                    'expiry': datetime.fromisoformat(doc['expiry']),
+                    'plan': plan if plan in PLANS else 'pro',
+                }
+            except (ValueError, KeyError):
+                logger.warning(f"Invalid subscription record for user {user_id}: {doc}. Skipping.")
 
-        c.execute('SELECT user_id, file_name, file_type FROM user_files')
-        for user_id, file_name, file_type in c.fetchall():
+        for doc in db.user_files.find({}):
+            user_id = doc['user_id']
             if user_id not in user_files:
                 user_files[user_id] = []
-            user_files[user_id].append((file_name, file_type))
+            user_files[user_id].append((doc['file_name'], doc['file_type']))
 
-        c.execute('SELECT user_id FROM active_users')
-        active_users.update(user_id for (user_id,) in c.fetchall())
+        active_users.update(doc['user_id'] for doc in db.active_users.find({}))
+        admin_ids.update(doc['user_id'] for doc in db.admins.find({}))
 
-        c.execute('SELECT user_id FROM admins')
-        admin_ids.update(user_id for (user_id,) in c.fetchall())
-
-        conn.close()
         logger.info(f"Data loaded: {len(active_users)} users, {len(user_subscriptions)} subscriptions, {len(admin_ids)} admins.")
     except Exception as e:
         logger.error(f"Error loading data: {e}", exc_info=True)
@@ -175,102 +277,69 @@ def load_data():
 init_db()
 load_data()
 
-# File approval functions
+# File approval functions (MongoDB needs no lock; DB_LOCK guards in-memory dict mutations)
 DB_LOCK = threading.Lock()
 
 def save_file_approval(user_id, file_name, file_type, status=FILE_STATUS_PENDING, reviewed_by=None, message_id=None):
     """Save or update file approval status"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            uploaded_time = datetime.now().isoformat()
-            review_time = datetime.now().isoformat() if reviewed_by else None
-            c.execute('''INSERT OR REPLACE INTO file_approvals 
-                        (user_id, file_name, file_type, status, reviewed_by, review_time, uploaded_time, message_id) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                     (user_id, file_name, file_type, status, reviewed_by, review_time, uploaded_time, message_id))
-            conn.commit()
-            logger.info(f"File approval saved: {user_id}/{file_name} -> {status}")
-        except Exception as e:
-            logger.error(f"Error saving file approval: {e}", exc_info=True)
-        finally:
-            conn.close()
+    try:
+        uploaded_time = datetime.now().isoformat()
+        review_time = datetime.now().isoformat() if reviewed_by else None
+        db.file_approvals.replace_one(
+            {'user_id': user_id, 'file_name': file_name},
+            {'user_id': user_id, 'file_name': file_name, 'file_type': file_type,
+             'status': status, 'reviewed_by': reviewed_by, 'review_time': review_time,
+             'uploaded_time': uploaded_time, 'message_id': message_id},
+            upsert=True)
+        logger.info(f"File approval saved: {user_id}/{file_name} -> {status}")
+    except Exception as e:
+        logger.error(f"Error saving file approval: {e}", exc_info=True)
 
 def get_file_status(user_id, file_name):
     """Get approval status of a file"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('''SELECT status, reviewed_by, review_time, file_type 
-                        FROM file_approvals WHERE user_id=? AND file_name=?''',
-                     (user_id, file_name))
-            result = c.fetchone()
-            if result:
-                return {
-                    'status': result[0],
-                    'reviewed_by': result[1],
-                    'review_time': result[2],
-                    'file_type': result[3]
-                }
-            return {'status': FILE_STATUS_PENDING, 'file_type': 'unknown'}
-        except Exception as e:
-            logger.error(f"Error getting file status: {e}")
-            return {'status': FILE_STATUS_PENDING, 'file_type': 'unknown'}
-        finally:
-            conn.close()
+    try:
+        doc = db.file_approvals.find_one({'user_id': user_id, 'file_name': file_name})
+        if doc:
+            return {
+                'status': doc.get('status', FILE_STATUS_PENDING),
+                'reviewed_by': doc.get('reviewed_by'),
+                'review_time': doc.get('review_time'),
+                'file_type': doc.get('file_type'),
+            }
+        return {'status': FILE_STATUS_PENDING, 'file_type': 'unknown'}
+    except Exception as e:
+        logger.error(f"Error getting file status: {e}")
+        return {'status': FILE_STATUS_PENDING, 'file_type': 'unknown'}
 
 def update_file_status(user_id, file_name, status, admin_id):
     """Update file approval status"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            review_time = datetime.now().isoformat()
-            c.execute('''UPDATE file_approvals 
-                        SET status=?, reviewed_by=?, review_time=?
-                        WHERE user_id=? AND file_name=?''',
-                     (status, admin_id, review_time, user_id, file_name))
-            conn.commit()
-            logger.info(f"File status updated: {user_id}/{file_name} -> {status} by {admin_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating file status: {e}")
-            return False
-        finally:
-            conn.close()
+    try:
+        review_time = datetime.now().isoformat()
+        db.file_approvals.update_one(
+            {'user_id': user_id, 'file_name': file_name},
+            {'$set': {'status': status, 'reviewed_by': admin_id, 'review_time': review_time}})
+        logger.info(f"File status updated: {user_id}/{file_name} -> {status} by {admin_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error updating file status: {e}")
+        return False
 
 def get_all_pending_files():
-    """Get all files pending approval"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('''SELECT user_id, file_name, file_type, uploaded_time 
-                        FROM file_approvals WHERE status=? 
-                        ORDER BY uploaded_time DESC''',
-                     (FILE_STATUS_PENDING,))
-            return c.fetchall()
-        except Exception as e:
-            logger.error(f"Error getting pending files: {e}")
-            return []
-        finally:
-            conn.close()
+    """Get all files pending approval as list of (user_id, file_name, file_type, uploaded_time)"""
+    try:
+        docs = db.file_approvals.find({'status': FILE_STATUS_PENDING}).sort('uploaded_time', -1)
+        return [(d['user_id'], d['file_name'], d.get('file_type'), d.get('uploaded_time')) for d in docs]
+    except Exception as e:
+        logger.error(f"Error getting pending files: {e}")
+        return []
 
 def get_pending_files_count():
     """Get count of pending files"""
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('SELECT COUNT(*) FROM file_approvals WHERE status=?', (FILE_STATUS_PENDING,))
-            return c.fetchone()[0]
-        except Exception as e:
-            logger.error(f"Error getting pending files count: {e}")
-            return 0
-        finally:
-            conn.close()
+    try:
+        return db.file_approvals.count_documents({'status': FILE_STATUS_PENDING})
+    except Exception as e:
+        logger.error(f"Error getting pending files count: {e}")
+        return 0
 
 def send_file_for_approval(message, user_id, file_name, file_type):
     """Send file to all admins for approval"""
@@ -309,15 +378,46 @@ def get_user_folder(user_id):
     os.makedirs(user_folder, exist_ok=True, mode=0o755)
     return user_folder
 
+def get_user_plan(user_id):
+    """Return the active plan key for a user: admin, owner, plan name, or free."""
+    if user_id == OWNER_ID:
+        return 'owner'
+    if user_id in admin_ids:
+        return 'admin'
+    sub = user_subscriptions.get(user_id)
+    if sub and sub.get('expiry', datetime.min) > datetime.now():
+        return sub.get('plan', 'pro') if sub.get('plan') in PLANS else 'pro'
+    return 'free'
+
+def get_plan_limit(user_id):
+    """Return the number of bots a user may host."""
+    if user_id == OWNER_ID:
+        return OWNER_LIMIT
+    if user_id in admin_ids:
+        return ADMIN_LIMIT
+    plan_key = get_user_plan(user_id)
+    return PLANS.get(plan_key, PLANS['free'])['limit']
+
 def get_user_file_limit(user_id):
-    if user_id == OWNER_ID: return OWNER_LIMIT
-    if user_id in admin_ids: return ADMIN_LIMIT
-    if user_id in user_subscriptions and user_subscriptions[user_id]['expiry'] > datetime.now():
-        return SUBSCRIBED_USER_LIMIT
-    return FREE_USER_LIMIT
+    return get_plan_limit(user_id)
 
 def get_user_file_count(user_id):
     return len(user_files.get(user_id, []))
+
+def get_plans_text(user_id=None):
+    """Human-readable list of all plans for the /plans command."""
+    lines = ["💠 <b>HostBot Hosting Plans</b>", ""]
+    for key in ['free', 'starter', 'pro', 'business']:
+        p = PLANS[key]
+        lines.append(f"• <b>{p['name']}</b> - {p['limit']} bots")
+    if user_id is not None:
+        plan_key = get_user_plan(user_id)
+        if plan_key in ('owner', 'admin'):
+            lines.append(f"\nYour plan: <b>{plan_key.title()}</b> (unlimited)")
+        else:
+            p = PLANS.get(plan_key, PLANS['free'])
+            lines.append(f"\nYour plan: <b>{p['name']}</b> ({p['limit']} bots)")
+    return "\n".join(lines)
 
 def is_bot_running(script_owner_id, file_name):
     script_key = f"{script_owner_id}_{file_name}"
@@ -782,112 +882,73 @@ def run_js_script(script_path, script_owner_id, user_folder, file_name, message_
              del bot_scripts[script_key]
 
 def save_user_file(user_id, file_name, file_type='py'):
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('INSERT OR REPLACE INTO user_files (user_id, file_name, file_type) VALUES (?, ?, ?)',
-                      (user_id, file_name, file_type))
-            conn.commit()
-            if user_id not in user_files: user_files[user_id] = []
-            user_files[user_id] = [(fn, ft) for fn, ft in user_files[user_id] if fn != file_name]
-            user_files[user_id].append((file_name, file_type))
-            logger.info(f"Saved file '{file_name}' ({file_type}) for user {user_id}")
-        except sqlite3.Error as e: logger.error(f"SQLite error saving file for user {user_id}, {file_name}: {e}")
-        except Exception as e: logger.error(f"Unexpected error saving file for {user_id}, {file_name}: {e}", exc_info=True)
-        finally: conn.close()
+    try:
+        db.user_files.replace_one(
+            {'user_id': user_id, 'file_name': file_name},
+            {'user_id': user_id, 'file_name': file_name, 'file_type': file_type},
+            upsert=True)
+        if user_id not in user_files: user_files[user_id] = []
+        user_files[user_id] = [(fn, ft) for fn, ft in user_files[user_id] if fn != file_name]
+        user_files[user_id].append((file_name, file_type))
+        logger.info(f"Saved file '{file_name}' ({file_type}) for user {user_id}")
+    except Exception as e: logger.error(f"Unexpected error saving file for {user_id}, {file_name}: {e}", exc_info=True)
 
 def remove_user_file_db(user_id, file_name):
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('DELETE FROM user_files WHERE user_id = ? AND file_name = ?', (user_id, file_name))
-            conn.commit()
-            if user_id in user_files:
-                user_files[user_id] = [f for f in user_files[user_id] if f[0] != file_name]
-                if not user_files[user_id]: del user_files[user_id]
-            logger.info(f"Removed file '{file_name}' for user {user_id} from DB")
-        except sqlite3.Error as e: logger.error(f"SQLite error removing file for {user_id}, {file_name}: {e}")
-        except Exception as e: logger.error(f"Unexpected error removing file for {user_id}, {file_name}: {e}", exc_info=True)
-        finally: conn.close()
+    try:
+        db.user_files.delete_one({'user_id': user_id, 'file_name': file_name})
+        if user_id in user_files:
+            user_files[user_id] = [f for f in user_files[user_id] if f[0] != file_name]
+            if not user_files[user_id]: del user_files[user_id]
+        logger.info(f"Removed file '{file_name}' for user {user_id} from DB")
+    except Exception as e: logger.error(f"Unexpected error removing file for {user_id}, {file_name}: {e}", exc_info=True)
 
 def add_active_user(user_id):
     active_users.add(user_id)
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('INSERT OR IGNORE INTO active_users (user_id) VALUES (?)', (user_id,))
-            conn.commit()
-            logger.info(f"Added/Confirmed active user {user_id} in DB")
-        except sqlite3.Error as e: logger.error(f"SQLite error adding active user {user_id}: {e}")
-        except Exception as e: logger.error(f"Unexpected error adding active user {user_id}: {e}", exc_info=True)
-        finally: conn.close()
+    try:
+        db.active_users.replace_one({'user_id': user_id}, {'user_id': user_id}, upsert=True)
+        logger.info(f"Added/Confirmed active user {user_id} in DB")
+    except Exception as e: logger.error(f"Unexpected error adding active user {user_id}: {e}", exc_info=True)
 
-def save_subscription(user_id, expiry):
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            expiry_str = expiry.isoformat()
-            c.execute('INSERT OR REPLACE INTO subscriptions (user_id, expiry) VALUES (?, ?)', (user_id, expiry_str))
-            conn.commit()
-            user_subscriptions[user_id] = {'expiry': expiry}
-            logger.info(f"Saved subscription for {user_id}, expiry {expiry_str}")
-        except sqlite3.Error as e: logger.error(f"SQLite error saving subscription for {user_id}: {e}")
-        except Exception as e: logger.error(f"Unexpected error saving subscription for {user_id}: {e}", exc_info=True)
-        finally: conn.close()
+def save_subscription(user_id, expiry, plan='pro'):
+    try:
+        expiry_str = expiry.isoformat()
+        plan = plan if plan in PLANS else 'pro'
+        db.subscriptions.replace_one(
+            {'user_id': user_id},
+            {'user_id': user_id, 'expiry': expiry_str, 'plan': plan},
+            upsert=True)
+        user_subscriptions[user_id] = {'expiry': expiry, 'plan': plan}
+        logger.info(f"Saved subscription for {user_id}, expiry {expiry_str}, plan {plan}")
+    except Exception as e: logger.error(f"Unexpected error saving subscription for {user_id}: {e}", exc_info=True)
 
 def remove_subscription_db(user_id):
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('DELETE FROM subscriptions WHERE user_id = ?', (user_id,))
-            conn.commit()
-            if user_id in user_subscriptions: del user_subscriptions[user_id]
-            logger.info(f"Removed subscription for {user_id} from DB")
-        except sqlite3.Error as e: logger.error(f"SQLite error removing subscription for {user_id}: {e}")
-        except Exception as e: logger.error(f"Unexpected error removing subscription for {user_id}: {e}", exc_info=True)
-        finally: conn.close()
+    try:
+        db.subscriptions.delete_one({'user_id': user_id})
+        if user_id in user_subscriptions: del user_subscriptions[user_id]
+        logger.info(f"Removed subscription for {user_id} from DB")
+    except Exception as e: logger.error(f"Unexpected error removing subscription for {user_id}: {e}", exc_info=True)
 
 def add_admin_db(admin_id):
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        try:
-            c.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (admin_id,))
-            conn.commit()
-            admin_ids.add(admin_id)
-            logger.info(f"Added admin {admin_id} to DB")
-        except sqlite3.Error as e: logger.error(f"SQLite error adding admin {admin_id}: {e}")
-        except Exception as e: logger.error(f"Unexpected error adding admin {admin_id}: {e}", exc_info=True)
-        finally: conn.close()
+    try:
+        db.admins.replace_one({'user_id': admin_id}, {'user_id': admin_id}, upsert=True)
+        admin_ids.add(admin_id)
+        logger.info(f"Added admin {admin_id} to DB")
+    except Exception as e: logger.error(f"Unexpected error adding admin {admin_id}: {e}", exc_info=True)
 
 def remove_admin_db(admin_id):
     if admin_id == OWNER_ID:
         logger.warning("Attempted to remove OWNER_ID from admins.")
         return False
-    with DB_LOCK:
-        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        c = conn.cursor()
-        removed = False
-        try:
-            c.execute('SELECT 1 FROM admins WHERE user_id = ?', (admin_id,))
-            if c.fetchone():
-                c.execute('DELETE FROM admins WHERE user_id = ?', (admin_id,))
-                conn.commit()
-                removed = c.rowcount > 0
-                if removed: admin_ids.discard(admin_id); logger.info(f"Removed admin {admin_id} from DB")
-                else: logger.warning(f"Admin {admin_id} found but delete affected 0 rows.")
-            else:
-                logger.warning(f"Admin {admin_id} not found in DB.")
-                admin_ids.discard(admin_id)
-            return removed
-        except sqlite3.Error as e: logger.error(f"SQLite error removing admin {admin_id}: {e}"); return False
-        except Exception as e: logger.error(f"Unexpected error removing admin {admin_id}: {e}", exc_info=True); return False
-        finally: conn.close()
+    try:
+        removed = db.admins.delete_one({'user_id': admin_id}).deleted_count > 0
+        if removed:
+            admin_ids.discard(admin_id)
+            logger.info(f"Removed admin {admin_id} from DB")
+        else:
+            logger.warning(f"Admin {admin_id} not found in DB.")
+            admin_ids.discard(admin_id)
+        return removed
+    except Exception as e: logger.error(f"Unexpected error removing admin {admin_id}: {e}", exc_info=True); return False
 
 def create_main_menu_inline(user_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -1196,7 +1257,10 @@ def _logic_send_welcome(message):
     elif user_id in user_subscriptions:
         expiry_date = user_subscriptions[user_id].get('expiry')
         if expiry_date and expiry_date > datetime.now():
-            user_status = "Premium"; days_left = (expiry_date - datetime.now()).days
+            plan_key = user_subscriptions[user_id].get('plan', 'pro')
+            plan_label = PLANS.get(plan_key, PLANS['pro'])['name']
+            user_status = f"Premium ({plan_label})"
+            days_left = (expiry_date - datetime.now()).days
             expiry_info = f"\nSubscription expires in: {days_left} days"
         else: user_status = "Free User (Expired Sub)"; remove_subscription_db(user_id)
     else: user_status = "Free User"
@@ -1553,6 +1617,124 @@ def ping(message):
     bot.edit_message_text(f"Pong!\nLatency: {latency} ms\nUptime: {uptime_str}",
                           message.chat.id, msg.message_id)
 
+@bot.message_handler(commands=['plans'])
+def command_plans(message):
+    try:
+        bot.send_message(message.chat.id, get_plans_text(message.from_user.id), parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Error sending plans: {e}", exc_info=True)
+        bot.reply_to(message, get_plans_text(message.from_user.id))
+
+def _logic_plans(message):
+    command_plans(message)
+
+# ====================== WEB REGISTRATION (from bot) ======================
+def _registration_plan_keyboard():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        types.InlineKeyboardButton(f"🥉 {PLANS[k]['name']} - {PLANS[k]['limit']} bots",
+                                   callback_data=f"regplan_{k}")
+        for k in ['free', 'starter', 'pro', 'business']
+    ]
+    markup.add(*buttons)
+    markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data='regplan_cancel'))
+    return markup
+
+@bot.message_handler(commands=['register'])
+def command_register(message):
+    _logic_register(message)
+
+def _logic_register(message):
+    user_id = message.from_user.id
+    existing = db.web_users.find_one({'telegram_id': user_id})
+    if existing:
+        bot.reply_to(message,
+                     f"You are already registered as `{existing['username']}`.\n"
+                     f"Log in at the website dashboard with that username and password.\n"
+                     f"Your chosen plan: `{existing['plan']}`",
+                     parse_mode='Markdown')
+        return
+    if user_id in pending_regs:
+        bot.reply_to(message, "Registration already in progress. Send `/cancel` to abort or continue.", parse_mode='Markdown')
+        return
+    msg = bot.reply_to(message,
+                       "📝 <b>Web dashboard registration</b>\n\n"
+                       "This lets you log in on the website to manage bots, logs and env.\n\n"
+                       "Send your desired <b>username</b> (3-24 chars: letters, digits, underscore).\n"
+                       "/cancel to abort.",
+                       parse_mode='HTML')
+    bot.register_next_step_handler(msg, process_reg_username)
+
+def process_reg_username(message):
+    user_id = message.from_user.id
+    if message.text and message.text.lower() == '/cancel':
+        pending_regs.pop(user_id, None)
+        bot.reply_to(message, "Registration cancelled.")
+        return
+    username = (message.text or '').strip()
+    if not re.match(r'^[A-Za-z0-9_]{3,24}$', username):
+        bot.reply_to(message, "Invalid username. Use 3-24 chars: letters, digits, underscore. Try again or /cancel.")
+        msg = bot.send_message(message.chat.id, "Send your desired username, or /cancel.")
+        bot.register_next_step_handler(msg, process_reg_username)
+        return
+    if WEB_USERS.get(username) or db.web_users.find_one({'username': username}):
+        bot.reply_to(message, "That username is taken. Pick another, or /cancel.")
+        msg = bot.send_message(message.chat.id, "Send your desired username, or /cancel.")
+        bot.register_next_step_handler(msg, process_reg_username)
+        return
+    pending_regs[user_id] = {'username': username}
+    bot.reply_to(message, f"Username `{username}` is available. Now send a <b>password</b> (min 6 chars).",
+                 parse_mode='Markdown')
+    msg = bot.send_message(message.chat.id, "Send your password, or /cancel.")
+    bot.register_next_step_handler(msg, process_reg_password)
+
+def process_reg_password(message):
+    user_id = message.from_user.id
+    if message.text and message.text.lower() == '/cancel':
+        pending_regs.pop(user_id, None)
+        bot.reply_to(message, "Registration cancelled.")
+        return
+    password = message.text or ''
+    if len(password) < 6:
+        bot.reply_to(message, "Password must be at least 6 characters. Try again or /cancel.")
+        msg = bot.send_message(message.chat.id, "Send your password, or /cancel.")
+        bot.register_next_step_handler(msg, process_reg_password)
+        return
+    if user_id not in pending_regs:
+        bot.reply_to(message, "No registration in progress. Send /register to start.")
+        return
+    pending_regs[user_id]['password'] = password
+    bot.reply_to(message, "Almost done. <b>Choose your hosting plan:</b>", parse_mode='HTML',
+                 reply_markup=_registration_plan_keyboard())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('regplan_'))
+def regplan_callback(call):
+    bot.answer_callback_query(call.id)
+    user_id = call.from_user.id
+    plan = call.data.split('_', 1)[1]
+    if plan == 'cancel':
+        pending_regs.pop(user_id, None)
+        try: bot.edit_message_text("Registration cancelled.", call.message.chat.id, call.message.message_id)
+        except Exception: pass
+        return
+    reg = pending_regs.pop(user_id, None)
+    if not reg:
+        try: bot.edit_message_text("Registration expired. Send /register to start again.", call.message.chat.id, call.message.message_id)
+        except Exception: pass
+        return
+    ok, message = register_web_user(reg['username'], reg['password'], user_id, plan)
+    if ok:
+        text = (f"✅ <b>Registered!</b>\n\nUsername: <code>{reg['username']}</code>\n"
+                f"Plan: <b>{PLANS[plan]['name']}</b> ({PLANS[plan]['limit']} bots)\n\n"
+                f"Log in on the website dashboard to manage your bots.")
+        if plan != 'free':
+            text += "\n\nNote: your paid plan will be active once an admin activates the subscription."
+    else:
+        text = f"❌ Registration failed: {message}"
+    try: bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode='HTML')
+    except Exception:
+        bot.send_message(call.message.chat.id, text, parse_mode='HTML')
+
 BUTTON_TEXT_TO_LOGIC = {
     "📢 Updates Channel": _logic_updates_channel,
     "📤 Upload File": _logic_upload_file,
@@ -1561,6 +1743,8 @@ BUTTON_TEXT_TO_LOGIC = {
     "📞 Contact Owner": _logic_contact_owner,
     "📊 Statistics": _logic_statistics,
     "⏱ Uptime": _logic_uptime,
+    "💠 Plans": _logic_plans,
+    "📝 Register": _logic_register,
     "💳 Subscriptions": _logic_subscriptions_panel,
     "📢 Broadcast": _logic_broadcast_init,
     "🔒 Lock Bot": _logic_toggle_lock_bot,
@@ -2231,18 +2415,12 @@ def delete_bot_callback(call):
             except OSError as e: logger.error(f"Error deleting log {log_path}: {e}")
 
         remove_user_file_db(script_owner_id, file_name)
-        
-        with DB_LOCK:
-            conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-            c = conn.cursor()
-            try:
-                c.execute('DELETE FROM file_approvals WHERE user_id=? AND file_name=?', (script_owner_id, file_name))
-                conn.commit()
-                logger.info(f"Removed file approval record: {script_owner_id}/{file_name}")
-            except Exception as e:
-                logger.error(f"Error removing file approval: {e}")
-            finally:
-                conn.close()
+
+        try:
+            db.file_approvals.delete_one({'user_id': script_owner_id, 'file_name': file_name})
+            logger.info(f"Removed file approval record: {script_owner_id}/{file_name}")
+        except Exception as e:
+            logger.error(f"Error removing file approval: {e}")
         
         deleted_str = ", ".join(f"`{f}`" for f in deleted_disk) if deleted_disk else "associated files"
         try:
@@ -2602,23 +2780,25 @@ def process_add_subscription_details(message):
     if message.text.lower() == '/cancel': bot.reply_to(message, "Sub add cancelled."); return
     try:
         parts = message.text.split();
-        if len(parts) != 2: raise ValueError("Incorrect format")
+        if len(parts) < 2 or len(parts) > 3: raise ValueError("Incorrect format")
         sub_user_id = int(parts[0].strip()); days = int(parts[1].strip())
+        plan = parts[2].strip().lower() if len(parts) == 3 else 'pro'
         if sub_user_id <= 0 or days <= 0: raise ValueError("User ID/days must be positive")
+        if plan not in PLANS: raise ValueError(f"Plan must be one of: {', '.join(PLANS.keys())}")
 
         current_expiry = user_subscriptions.get(sub_user_id, {}).get('expiry')
         start_date_new_sub = datetime.now()
         if current_expiry and current_expiry > start_date_new_sub: start_date_new_sub = current_expiry
         new_expiry = start_date_new_sub + timedelta(days=days)
-        save_subscription(sub_user_id, new_expiry)
+        save_subscription(sub_user_id, new_expiry, plan)
 
-        logger.info(f"Sub for {sub_user_id} by admin {admin_id_check}. Expiry: {new_expiry:%Y-%m-%d}")
-        bot.reply_to(message, f"Sub for `{sub_user_id}` by {days} days.\nNew expiry: {new_expiry:%Y-%m-%d}")
-        try: bot.send_message(sub_user_id, f"Sub activated/extended by {days} days! Expires: {new_expiry:%Y-%m-%d}.")
+        logger.info(f"Sub for {sub_user_id} by admin {admin_id_check}. Plan: {plan}. Expiry: {new_expiry:%Y-%m-%d}")
+        bot.reply_to(message, f"Sub for `{sub_user_id}` by {days} days.\nPlan: `{plan}`\nNew expiry: {new_expiry:%Y-%m-%d}")
+        try: bot.send_message(sub_user_id, f"Sub activated/extended by {days} days! Plan: {plan.title()}\nExpires: {new_expiry:%Y-%m-%d}.")
         except Exception as e: logger.error(f"Failed to notify {sub_user_id} of new sub: {e}")
     except ValueError as e:
-        bot.reply_to(message, f"Invalid: {e}. Format: `ID days` or /cancel.")
-        msg = bot.send_message(message.chat.id, "Enter User ID & days, or /cancel.")
+        bot.reply_to(message, f"Invalid: {e}. Format: `ID days [plan]` or /cancel.")
+        msg = bot.send_message(message.chat.id, "Enter User ID, days and optional plan (starter/pro/business), or /cancel.")
         bot.register_next_step_handler(msg, process_add_subscription_details)
     except Exception as e: logger.error(f"Error processing add sub: {e}", exc_info=True); bot.reply_to(message, "Error.")
 
@@ -2688,8 +2868,12 @@ def cleanup():
 atexit.register(cleanup)
 
 def start_status_server():
-    """Optional tiny HTTP server exposing /health and /stats for the landing page."""
+    """HTTP server: public /health + /stats for the landing page, plus the
+    authenticated web dashboard API (/api/...) backed by WEB_USERS logins."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import urlparse, parse_qs
+
+    MAX_LOG_BYTES = 64 * 1024
 
     def _stats():
         running = 0
@@ -2708,9 +2892,172 @@ def start_status_server():
             'total_users': len(active_users),
             'running_bots': running,
             'pending_files': get_pending_files_count(),
-            'free_limit': FREE_USER_LIMIT,
-            'sub_limit': SUBSCRIBED_USER_LIMIT,
+            'plans': {k: v['limit'] for k, v in PLANS.items()},
         }
+
+    def _get_session(token):
+        if not token:
+            return None
+        sess = web_sessions.get(token)
+        if not sess:
+            return None
+        if sess['expires'] < datetime.now():
+            web_sessions.pop(token, None)
+            return None
+        return sess
+
+    def _make_fake_message(user_id):
+        class _User:
+            def __init__(self):
+                self.id = user_id
+                self.first_name = 'Web Dashboard'
+                self.username = None
+                self.is_bot = False
+        class _Chat:
+            def __init__(self):
+                self.id = user_id
+                self.type = 'private'
+        class _FakeMessage:
+            def __init__(self):
+                self.from_user = _User()
+                self.chat = _Chat()
+                self.message_id = 0
+                self.text = '/start from web dashboard'
+        return _FakeMessage()
+
+    def _dashboard_for(sess):
+        user_id = sess['telegram_id']
+        username = sess['username']
+        plan_key = get_user_plan(user_id)
+        if plan_key in ('owner', 'admin'):
+            plan_label = plan_key.title()
+            limit = OWNER_LIMIT if plan_key == 'owner' else ADMIN_LIMIT
+        else:
+            plan_label = PLANS.get(plan_key, PLANS['free'])['name']
+            limit = PLANS.get(plan_key, PLANS['free'])['limit']
+        limit_display = "Unlimited" if limit == float('inf') else limit
+
+        registered_plan = sess.get('plan')
+        plan_note = ""
+        if registered_plan and registered_plan != 'free' and plan_key == 'free':
+            plan_note = (f"Paid plan '{PLANS.get(registered_plan, {}).get('name', registered_plan)}' "
+                         f"requested - waiting for admin activation.")
+
+        display_name = username
+        try:
+            chat = bot.get_chat(user_id)
+            display_name = chat.first_name or username
+            if getattr(chat, 'username', None):
+                display_name = f"@{chat.username}"
+        except Exception:
+            pass
+
+        sub = user_subscriptions.get(user_id)
+        expires = sub['expiry'].isoformat() if sub else None
+
+        files = []
+        for fn, ft in user_files.get(user_id, []):
+            status = get_file_status(user_id, fn)['status']
+            running = is_bot_running(user_id, fn)
+            key = f"{user_id}_{fn}"
+            info = bot_scripts.get(key)
+            log_path = os.path.join(get_user_folder(user_id), f"{os.path.splitext(fn)[0]}.log")
+            files.append({
+                'file_name': fn,
+                'file_type': ft,
+                'status': status,
+                'running': running,
+                'pid': info['process'].pid if (info and running and info.get('process')) else None,
+                'start_time': info['start_time'].isoformat() if (info and info.get('start_time')) else None,
+                'log_exists': os.path.exists(log_path),
+            })
+        return {
+            'username': username,
+            'display_name': display_name,
+            'telegram_id': user_id,
+            'plan': plan_key,
+            'plan_label': plan_label,
+            'registered_plan': registered_plan,
+            'plan_note': plan_note,
+            'limit': limit_display,
+            'expires': expires,
+            'locked': bot_locked,
+            'files_count': len(files),
+            'running_count': sum(1 for f in files if f['running']),
+            'pending_count': sum(1 for f in files if f['status'] == FILE_STATUS_PENDING),
+            'files': files,
+        }
+
+    def _read_env(user_id):
+        env_path = os.path.join(get_user_folder(user_id), '.env')
+        env_data = {}
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    k, _, v = line.partition('=')
+                    env_data[k.strip()] = v.strip().strip('"').strip("'")
+        return env_path, env_data
+
+    def _write_env(user_id, env_data):
+        env_path = os.path.join(get_user_folder(user_id), '.env')
+        with open(env_path, 'w', encoding='utf-8') as f:
+            for k, v in env_data.items():
+                v_str = str(v)
+                if ' ' in v_str or '#' in v_str:
+                    v_str = f'"{v_str}"'
+                f.write(f"{k}={v_str}\n")
+        return env_path
+
+    def _file_owned(user_id, file_name):
+        return any(fn == file_name for fn, _ in user_files.get(user_id, []))
+
+    def _bot_action(user_id, file_name, action):
+        if not _file_owned(user_id, file_name):
+            return {'ok': False, 'error': 'File not found in your account'}
+        ft = next((t for fn, t in user_files.get(user_id, []) if fn == file_name), None)
+        key = f"{user_id}_{file_name}"
+        running = is_bot_running(user_id, file_name)
+        user_folder = get_user_folder(user_id)
+        script_path = os.path.join(user_folder, file_name)
+
+        if action == 'start':
+            if running:
+                return {'ok': False, 'error': f"'{file_name}' is already running"}
+            status = get_file_status(user_id, file_name)['status']
+            if status != FILE_STATUS_APPROVED:
+                return {'ok': False, 'error': f"'{file_name}' is {status}. It must be approved first."}
+            fake = _make_fake_message(user_id)
+            if ft == 'js':
+                threading.Thread(target=run_js_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
+            else:
+                threading.Thread(target=run_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
+            return {'ok': True, 'message': f"'{file_name}' is starting..."}
+        elif action == 'stop':
+            if not running:
+                return {'ok': False, 'error': f"'{file_name}' is not running"}
+            info = bot_scripts.get(key)
+            if info:
+                kill_process_tree(info)
+                bot_scripts.pop(key, None)
+            return {'ok': True, 'message': f"'{file_name}' stopped"}
+        elif action == 'restart':
+            info = bot_scripts.get(key)
+            if info and running:
+                kill_process_tree(info)
+                bot_scripts.pop(key, None)
+            status = get_file_status(user_id, file_name)['status']
+            if status != FILE_STATUS_APPROVED:
+                return {'ok': False, 'error': f"'{file_name}' is {status}. It must be approved first."}
+            fake = _make_fake_message(user_id)
+            if ft == 'js':
+                threading.Thread(target=run_js_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
+            else:
+                threading.Thread(target=run_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
+            return {'ok': True, 'message': f"'{file_name}' restarted"}
+        return {'ok': False, 'error': 'Unknown action'}
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, payload, code=200):
@@ -2719,24 +3066,177 @@ def start_status_server():
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-            self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _read_body(self):
+            length = int(self.headers.get('Content-Length', 0) or 0)
+            if length <= 0:
+                return {}
+            try:
+                raw = self.rfile.read(length).decode('utf-8', errors='ignore')
+                return json.loads(raw) if raw.strip() else {}
+            except Exception:
+                return {}
+
+        def _token_from(self, body=None):
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            token = (qs.get('token') or [None])[0]
+            if not token and body:
+                token = body.get('token')
+            return token
 
         def do_OPTIONS(self):
             self.send_response(204)
             self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
-            self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
             self.send_header('Content-Length', '0')
             self.end_headers()
 
         def do_GET(self):
-            if STATUS_TOKEN and self.headers.get('Authorization') != f'Bearer {STATUS_TOKEN}':
-                return self._send({'error': 'unauthorized'}, 401)
-            if self.path in ('/', '/health', '/stats'):
+            path = urlparse(self.path).path
+            qs = parse_qs(urlparse(self.path).query)
+
+            if path in ('/', '/health', '/stats'):
+                if STATUS_TOKEN and self.headers.get('Authorization') != f'Bearer {STATUS_TOKEN}':
+                    return self._send({'error': 'unauthorized'}, 401)
                 return self._send(_stats())
+
+            if path == '/api/plans':
+                return self._send({
+                    'plans': [
+                        {'key': k, 'name': v['name'], 'limit': v['limit']}
+                        for k, v in PLANS.items()
+                    ],
+                    'status': 'ok',
+                })
+
+            if path == '/api/dashboard':
+                sess = _get_session(self._token_from())
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                return self._send(_dashboard_for(sess))
+
+            if path == '/api/logs':
+                sess = _get_session(self._token_from())
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                file_name = (qs.get('file') or [None])[0]
+                if not file_name or not _file_owned(sess['telegram_id'], file_name):
+                    return self._send({'error': 'file not found'}, 404)
+                user_folder = get_user_folder(sess['telegram_id'])
+                log_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
+                if not os.path.exists(log_path):
+                    return self._send({'error': 'no logs yet', 'logs': ''})
+                try:
+                    size = os.path.getsize(log_path)
+                    if size > MAX_LOG_BYTES:
+                        with open(log_path, 'rb') as f:
+                            f.seek(-MAX_LOG_BYTES, os.SEEK_END)
+                            logs = f.read().decode('utf-8', errors='ignore')
+                        truncated = True
+                    else:
+                        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            logs = f.read()
+                        truncated = False
+                    return self._send({'ok': True, 'logs': logs, 'truncated': truncated})
+                except Exception as e:
+                    logger.error(f"Web logs error for {file_name}: {e}", exc_info=True)
+                    return self._send({'error': 'failed to read logs'}, 500)
+
+            if path == '/api/env':
+                sess = _get_session(self._token_from())
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                file_name = (qs.get('file') or [None])[0]
+                if not file_name or not _file_owned(sess['telegram_id'], file_name):
+                    return self._send({'error': 'file not found'}, 404)
+                try:
+                    _, env_data = _read_env(sess['telegram_id'])
+                    return self._send({'ok': True, 'env': env_data})
+                except Exception as e:
+                    logger.error(f"Web env read error for {file_name}: {e}", exc_info=True)
+                    return self._send({'error': 'failed to read env'}, 500)
+
+            self._send({'error': 'not found'}, 404)
+
+        def do_POST(self):
+            path = urlparse(self.path).path
+            body = self._read_body()
+
+            if path == '/api/login':
+                username = (body.get('username') or '').strip()
+                password = body.get('password') or ''
+                telegram_id, account = verify_web_login(username, password)
+                if not telegram_id:
+                    return self._send({'error': 'invalid username or password'}, 401)
+                token = __import__('secrets').token_urlsafe(32)
+                web_sessions[token] = {
+                    'telegram_id': telegram_id,
+                    'username': username,
+                    'plan': account.get('plan') if account else None,
+                    'expires': datetime.now() + timedelta(seconds=WEB_SESSION_TTL),
+                }
+                sess = web_sessions[token]
+                return self._send({'ok': True, 'token': token, 'dashboard': _dashboard_for(sess)})
+
+            if path == '/api/register':
+                username = (body.get('username') or '').strip()
+                password = body.get('password') or ''
+                plan = (body.get('plan') or 'free').lower()
+                try:
+                    telegram_id = int(body.get('telegram_id'))
+                except (TypeError, ValueError):
+                    telegram_id = 0
+                ok, message = register_web_user(username, password, telegram_id, plan)
+                if not ok:
+                    return self._send({'error': message}, 400)
+                return self._send({'ok': True, 'message': message})
+
+            if path == '/api/logout':
+                token = self._token_from(body)
+                if token:
+                    web_sessions.pop(token, None)
+                return self._send({'ok': True})
+
+            if path == '/api/env':
+                sess = _get_session(self._token_from(body))
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                file_name = body.get('file')
+                new_env = body.get('env')
+                if not file_name or not _file_owned(sess['telegram_id'], file_name):
+                    return self._send({'error': 'file not found'}, 404)
+                if not isinstance(new_env, dict):
+                    return self._send({'error': 'env must be an object of key/value pairs'}, 400)
+                env_path, env_data = _read_env(sess['telegram_id'])
+                env_key_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+                for k in new_env:
+                    if not env_key_re.match(k):
+                        return self._send({'error': f"Invalid env key: {k}. Use letters, digits and underscore."}, 400)
+                for k, v in new_env.items():
+                    env_data[k] = str(v).replace('\n', ' ').replace('\r', ' ').strip()
+                try:
+                    _write_env(sess['telegram_id'], env_data)
+                    return self._send({'ok': True, 'message': f"Environment updated for '{file_name}'"})
+                except Exception as e:
+                    logger.error(f"Web env write error for {file_name}: {e}", exc_info=True)
+                    return self._send({'error': 'failed to write env'}, 500)
+
+            if path == '/api/bot':
+                sess = _get_session(self._token_from(body))
+                if not sess:
+                    return self._send({'error': 'invalid or expired session'}, 401)
+                file_name = body.get('file')
+                action = body.get('action')
+                if not file_name or action not in ('start', 'stop', 'restart'):
+                    return self._send({'error': 'file and action (start/stop/restart) required'}, 400)
+                return self._send(_bot_action(sess['telegram_id'], file_name, action))
+
             self._send({'error': 'not found'}, 404)
 
         def log_message(self, *args):

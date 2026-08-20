@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Create your HostBot account and pick a hosting plan to manage your bots, logs and environment.">
+    <title>Register | HostBot Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <a href="index.html" class="logo">
+                <span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                HostBot
+            </a>
+            <div class="topbar-right">
+                <a href="login.html" class="btn btn-ghost btn-sm"><i class="ph ph-sign-in" aria-hidden="true"></i> Log in</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-wrap">
+        <section class="auth-card">
+            <div class="auth-head">
+                <span class="pill"><i class="ph ph-user-plus" aria-hidden="true"></i> Create account</span>
+                <h1>Register your plan</h1>
+                <p>Pick a hosting plan and get dashboard access to your bots, logs and env.</p>
+            </div>
+
+            <div class="auth-error" id="authError" role="alert">
+                <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                <span id="authErrorText"></span>
+            </div>
+
+            <form id="regForm" novalidate>
+                <div class="field">
+                    <label for="username">Username</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-user lead" aria-hidden="true"></i>
+                        <input type="text" id="username" name="username" autocomplete="username" placeholder="3-24 chars, letters digits underscore" required>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="telegramId">Telegram ID</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-paper-plane-tilt lead" aria-hidden="true"></i>
+                        <input type="number" id="telegramId" name="telegramId" autocomplete="off" placeholder="your numeric Telegram id" required>
+                    </div>
+                    <p class="field-hint">Send /start to the Telegram bot to see your ID, or use the /register command inside the bot to skip this.</p>
+                </div>
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-lock lead" aria-hidden="true"></i>
+                        <input type="password" id="password" name="password" autocomplete="new-password" placeholder="at least 6 characters" required>
+                        <button type="button" class="eye-btn" data-eyes="password" aria-label="Show password">
+                            <i class="ph ph-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="confirm">Confirm password</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-lock lead" aria-hidden="true"></i>
+                        <input type="password" id="confirm" name="confirm" autocomplete="new-password" placeholder="repeat your password" required>
+                        <button type="button" class="eye-btn" data-eyes="confirm" aria-label="Show password">
+                            <i class="ph ph-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label>Choose your plan</label>
+                    <div class="plan-options" id="planOptions">
+                        <label class="plan-opt" data-plan="free">
+                            <input type="radio" name="plan" value="free" checked>
+                            <span class="plan-opt-name">Free</span>
+                            <span class="plan-opt-meta">3 bots</span>
+                            <span class="plan-opt-check"><i class="ph ph-check" aria-hidden="true"></i></span>
+                        </label>
+                        <label class="plan-opt" data-plan="starter">
+                            <input type="radio" name="plan" value="starter">
+                            <span class="plan-opt-name">Starter</span>
+                            <span class="plan-opt-meta">8 bots</span>
+                            <span class="plan-opt-check"><i class="ph ph-check" aria-hidden="true"></i></span>
+                        </label>
+                        <label class="plan-opt" data-plan="pro">
+                            <input type="radio" name="plan" value="pro">
+                            <span class="plan-opt-name">Pro</span>
+                            <span class="plan-opt-meta">20 bots</span>
+                            <span class="plan-opt-check"><i class="ph ph-check" aria-hidden="true"></i></span>
+                        </label>
+                        <label class="plan-opt" data-plan="business">
+                            <input type="radio" name="plan" value="business">
+                            <span class="plan-opt-name">Business</span>
+                            <span class="plan-opt-meta">50 bots</span>
+                            <span class="plan-opt-check"><i class="ph ph-check" aria-hidden="true"></i></span>
+                        </label>
+                    </div>
+                    <p class="field-hint">Free is active instantly. Paid plans activate after the admin confirms your subscription.</p>
+                </div>
+
+                <button type="submit" class="btn btn-primary auth-submit" id="regBtn">
+                    <i class="ph ph-user-plus" aria-hidden="true"></i>
+                    <span>Create account</span>
+                </button>
+            </form>
+
+            <p class="auth-hint">Already registered? <a href="login.html">Log in here</a>.</p>
+        </section>
+    </main>
+
+    <script>
+        // Point this at your VPS status server when the page is hosted on Vercel, e.g.
+        // window.HOSTBOT_API_URL = "https://bot.example.com";
+        window.HOSTBOT_API_URL = "";
+    </script>
+    <script src="auth.js"></script>
+    <script src="register.js"></script>
+</body>
+</html>

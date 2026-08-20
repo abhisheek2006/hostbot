@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="HostBot dashboard: manage your hosted bots, live logs and environment variables.">
+    <title>Dashboard | HostBot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <a href="index.html" class="logo">
+                <span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                HostBot
+            </a>
+            <div class="topbar-right">
+                <span class="user-chip" id="userChip">
+                    <span class="dot" aria-hidden="true"></span>
+                    <span id="chipName">Loading...</span>
+                </span>
+                <button class="btn btn-ghost btn-sm" id="logoutBtn"><i class="ph ph-sign-out" aria-hidden="true"></i> Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="dash-main container">
+        <div class="loading" id="loading">
+            <span class="spinner" aria-hidden="true"></span> Loading dashboard...
+        </div>
+
+        <div id="dashContent" hidden>
+            <section class="hello-card">
+                <div>
+                    <div class="hello-title">
+                        <i class="ph ph-user" aria-hidden="true"></i>
+                        <span id="helloName">User</span>
+                        <span class="plan-tag" id="planTag"><i class="ph ph-crown-simple" aria-hidden="true"></i> <span id="planLabel">-</span></span>
+                    </div>
+                    <p class="hello-meta" id="helloMeta"></p>
+                </div>
+                <span class="plan-tag" id="limitTag"><i class="ph ph-stack" aria-hidden="true"></i> <span id="limitLabel">-</span></span>
+            </section>
+
+            <section class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-label"><i class="ph ph-files" aria-hidden="true"></i> Files</div>
+                    <div class="stat-value"><span id="stFiles">0</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="ph ph-play" aria-hidden="true"></i> Running</div>
+                    <div class="stat-value"><span id="stRunning">0</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="ph ph-hourglass" aria-hidden="true"></i> Pending</div>
+                    <div class="stat-value"><span id="stPending">0</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label"><i class="ph ph-gauge" aria-hidden="true"></i> Host</div>
+                    <div class="stat-value"><span id="stHost">-</span><span class="unit" id="stHostUnit"></span></div>
+                </div>
+            </section>
+
+            <section>
+                <div class="section-head-dash">
+                    <div>
+                        <h2><i class="ph ph-bot" aria-hidden="true"></i> Your bots</h2>
+                        <div class="sub">Start, stop or restart a bot and open its logs or environment.</div>
+                    </div>
+                    <button class="btn btn-ghost btn-sm" id="refreshBtn"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i> Refresh</button>
+                </div>
+
+                <div class="bot-list" id="botList"></div>
+            </section>
+
+            <section class="panel" id="detailPanel" hidden>
+                <div class="panel-head">
+                    <h3><i class="ph ph-terminal-window" aria-hidden="true"></i> <span id="detailTitle">Bot</span></h3>
+                    <div class="tabs" role="tablist">
+                        <button class="tab active" data-view="logs" role="tab"><i class="ph ph-file-text" aria-hidden="true"></i> Logs</button>
+                        <button class="tab" data-view="env" role="tab"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Environment</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="tab-view active" data-view="logs">
+                        <div class="log-toolbar">
+                            <label class="auto-refresh"><input type="checkbox" id="autoRefresh"> Auto refresh (3s)</label>
+                            <span class="hint" id="logHint"></span>
+                            <button class="btn btn-ghost btn-sm" id="refreshLogBtn"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i> Refresh</button>
+                        </div>
+                        <pre class="log-box" id="logBox"><span class="log-empty">Loading logs...</span></pre>
+                    </div>
+                    <div class="tab-view" data-view="env">
+                        <div class="env-rows" id="envRows"></div>
+                        <div class="env-actions">
+                            <button class="btn btn-ghost btn-sm" id="addEnvBtn"><i class="ph ph-plus" aria-hidden="true"></i> Add variable</button>
+                            <button class="btn btn-primary btn-sm" id="saveEnvBtn"><i class="ph ph-floppy-disk" aria-hidden="true"></i> Save env</button>
+                            <span class="env-saved" id="envSaved"><i class="ph ph-check-circle" aria-hidden="true"></i> Saved</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Point this at your VPS status server when the page is hosted on Vercel, e.g.
+        // window.HOSTBOT_API_URL = "https://bot.example.com";
+        window.HOSTBOT_API_URL = "";
+    </script>
+    <script src="auth.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Log in to the HostBot dashboard to manage your hosted bots, logs and environment variables.">
+    <title>Login | HostBot Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
+        <div class="container topbar-inner">
+            <a href="index.html" class="logo">
+                <span class="logo-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                HostBot
+            </a>
+            <div class="topbar-right">
+                <a href="index.html" class="btn btn-ghost btn-sm"><i class="ph ph-arrow-left" aria-hidden="true"></i> Back</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-wrap">
+        <section class="auth-card">
+            <div class="auth-head">
+                <span class="pill"><i class="ph ph-gauge" aria-hidden="true"></i> Dashboard access</span>
+                <h1>Welcome back</h1>
+                <p>Log in to manage your bots, logs and environment.</p>
+            </div>
+
+            <div class="auth-error" id="authError" role="alert">
+                <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                <span id="authErrorText"></span>
+            </div>
+
+            <div class="auth-ok" id="regOk" role="status">
+                <i class="ph ph-check-circle" aria-hidden="true"></i>
+                <span>Account created. Log in with your new username and password.</span>
+            </div>
+
+            <form id="loginForm" novalidate>
+                <div class="field">
+                    <label for="username">Username</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-user lead" aria-hidden="true"></i>
+                        <input type="text" id="username" name="username" autocomplete="username" placeholder="your username" required>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label for="password">Password</label>
+                    <div class="input-wrap">
+                        <i class="ph ph-lock lead" aria-hidden="true"></i>
+                        <input type="password" id="password" name="password" autocomplete="current-password" placeholder="your password" required>
+                        <button type="button" class="eye-btn" id="eyeToggle" aria-label="Show password">
+                            <i class="ph ph-eye" id="eyeIcon" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary auth-submit" id="loginBtn">
+                    <i class="ph ph-sign-in" aria-hidden="true"></i>
+                    <span>Log in</span>
+                </button>
+            </form>
+
+            <p class="auth-hint">New here? <a href="register.html">Create an account</a> and pick a hosting plan, or <a href="https://t.me/Fferss_bot" target="_blank" rel="noopener">open the bot on Telegram</a>.</p>
+        </section>
+    </main>
+
+    <script>
+        // Point this at your VPS status server when the page is hosted on Vercel, e.g.
+        // window.HOSTBOT_API_URL = "https://bot.example.com";
+        window.HOSTBOT_API_URL = "";
+    </script>
+    <script src="auth.js"></script>
+    <script src="login.js"></script>
+</body>
+</html>

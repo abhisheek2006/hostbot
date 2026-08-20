@@ -742,6 +742,123 @@ code {
 .reveal.in { opacity: 1; transform: none; }
 
 /* ============================ RESPONSIVE ============================ */
+/* ============================ PLANS + DASHBOARD CTA ============================ */
+.plans-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-top: 40px;
+}
+
+.plan-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-card);
+    padding: 30px 26px 26px;
+    transition: transform 0.5s var(--ease), border-color 0.4s var(--ease), box-shadow 0.5s var(--ease);
+}
+
+.plan-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-line);
+    box-shadow: 0 24px 60px -30px rgba(40, 211, 154, 0.35);
+}
+
+.plan-card.featured {
+    border-color: var(--accent-line);
+    background: linear-gradient(180deg, rgba(40, 211, 154, 0.07), var(--panel) 45%);
+}
+
+.plan-badge {
+    position: absolute;
+    top: -12px;
+    left: 26px;
+    background: var(--accent);
+    color: #04120d;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: var(--r-pill);
+}
+
+.plan-name {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.plan-price {
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 10px 0 2px;
+}
+
+.plan-price span {
+    font-size: 1rem;
+    color: var(--faint);
+    font-weight: 500;
+}
+
+.plan-desc {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin-bottom: 18px;
+}
+
+.plan-feats {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 26px;
+    flex: 1;
+}
+
+.plan-feats li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.92rem;
+    color: var(--text);
+}
+
+.plan-feats i { color: var(--accent); font-size: 1.05rem; }
+
+.dash-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 28px;
+    margin-top: 40px;
+    padding: 30px 34px;
+    background: linear-gradient(120deg, rgba(40, 211, 154, 0.08), rgba(40, 211, 154, 0.02) 60%);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--r-card);
+}
+
+.dash-cta h3 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 1.35rem;
+    margin-bottom: 6px;
+}
+
+.dash-cta h3 i { color: var(--accent); }
+
+.dash-cta p { color: var(--muted); font-size: 0.95rem; max-width: 560px; }
+
+.dash-cta .btn { white-space: nowrap; }
+
 @media (max-width: 1024px) {
     .hero-grid { grid-template-columns: 1fr; gap: 72px; }
     .hero-visual { justify-content: flex-start; }
@@ -772,6 +889,8 @@ code {
     .steps { grid-template-columns: 1fr; }
     .status-grid { grid-template-columns: 1fr 1fr; }
     .stack-pair { grid-template-columns: 1fr; }
+    .plans-grid { grid-template-columns: 1fr; max-width: 460px; margin-inline: auto; }
+    .dash-cta { flex-direction: column; align-items: flex-start; }
     .section { padding: 72px 0; }
     .float-card { left: auto; right: 8px; }
 }
