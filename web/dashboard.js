@@ -70,8 +70,20 @@
                 location.replace("login.html");
                 return;
             }
+            // Hide the spinner and show a visible error so the page is never
+            // stuck on "Loading dashboard..." with no reply from the server.
+            els.loading.hidden = true;
+            els.content.hidden = false;
+            els.stHost.textContent = "Offline";
+            var msg = esc(err.message || "Could not reach the HostBot server");
+            els.botList.innerHTML =
+                '<div class="empty-state">' +
+                '<i class="ph ph-warning" aria-hidden="true"></i>' +
+                "Could not load your bots.<br><code>" + msg + "</code>" +
+                '<br><button class="btn btn-primary btn-sm" onclick="location.reload()">' +
+                '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i> Retry</button>' +
+                "</div>";
             toast("Failed to load dashboard: " + (err.message || err), true);
-            els.loading.textContent = "Could not reach the HostBot server. Check HOSTBOT_API_URL.";
         }
     }
 

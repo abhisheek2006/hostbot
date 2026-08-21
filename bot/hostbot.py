@@ -3726,8 +3726,28 @@ def start_status_server():
         def log_message(self, *args):
             pass
 
+    def _guard(fn):
+        """Wrap a BaseHTTPRequestHandler method so the server ALWAYS sends a
+        JSON response, even if an unexpected exception occurs. Previously a
+        raise here left the connection open with no reply, which made the
+        dashboard appear to hang on 'Loading dashboard...' forever."""
+        def wrapper(self, *args, **kwargs):
+            try:
+                return fn(self, *args, **kwargs)
+            except Exception as e:
+                logger.error(f"HTTP handler error in {getattr(fn, '__name__', fn)}: {e}", exc_info=True)
+                try:
+                    self._send({'error': 'internal server error'}, 500)
+                except Exception:
+                    pass
+                return None
+        return wrapper
+
     try:
+        Handler.do_GET = _guard(Handler.do_GET)
+        Handler.do_POST = _guard(Handler.do_POST)
         server = ThreadingHTTPServer(('0.0.0.0', STATUS_SERVER_PORT), Handler)
+        server.daemon_threads = True
         logger.info(f"Status server listening on http://0.0.0.0:{STATUS_SERVER_PORT}")
         server.serve_forever()
     except Exception as e:
@@ -3742,6 +3762,10 @@ if __name__ == '__main__':
 
     if STATUS_SERVER_ENABLED:
         threading.Thread(target=start_status_server, daemon=True).start()
+    else:
+        logger.warning("STATUS_SERVER_ENABLED is false - the web dashboard / API "
+                       "/health,/stats,/api/* will NOT be served. Set it to 'true' "
+                       "in .env and restart to enable the dashboard.")
 
     logger.info("Starting bot polling...")
 
