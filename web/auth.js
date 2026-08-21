@@ -51,7 +51,9 @@
             res = await fetch(API.base + path, opts);
         } catch (e) {
             clearTimeout(timer);
-            var netErr = e && e.name === "AbortError" ? "Request timed out. VPS not responding." : (e.message || "Network error");
+            var netErr = e && e.name === "AbortError"
+                ? "Request timed out. VPS not responding at " + API.base + path
+                : ((e && e.message) || "Network error") + " calling " + API.base + path;
             var ab = new Error(netErr);
             ab.status = 0;
             throw ab;
@@ -60,8 +62,9 @@
         var data = null;
         try { data = await res.json(); } catch (e) { /* no body */ }
         if (!res.ok) {
-            var err = new Error((data && data.error) || "Request failed (" + res.status + ")");
+            var err = new Error((data && data.error) || ("Request failed (" + res.status + ") on " + API.base + path));
             err.status = res.status;
+            err.data = data;
             throw err;
         }
         return data;
