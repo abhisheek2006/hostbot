@@ -1246,34 +1246,45 @@ def handle_zip_file(downloaded_file_content, file_name_zip, message):
         if not main_script_name:
             bot.reply_to(message, "No `.py` or `.js` script found in archive!"); return
 
-        logger.info(f"Moving extracted files from {temp_dir} to {user_folder}")
-        moved_count = 0
-        for item_name in os.listdir(temp_dir):
-            src_path = os.path.join(temp_dir, item_name)
-            dest_path = os.path.join(user_folder, item_name)
-            if os.path.isdir(dest_path): shutil.rmtree(dest_path)
-            elif os.path.exists(dest_path): os.remove(dest_path)
-            shutil.move(src_path, dest_path); moved_count +=1
-        logger.info(f"Moved {moved_count} items to {user_folder}")
-
-        # Make sure the main script sits at the root of the user folder so the
-        # runner (start/stop/logs) can find it even if it was inside a subfolder.
-        if not os.path.exists(os.path.join(user_folder, main_script_name)):
-            for root, dirs, files in os.walk(user_folder):
+        # Make sure the main script sits at the root of the project (so the
+        # runner/start/stop/logs find it by name) - done inside temp_dir since
+        # the files are now snapshotted into MongoDB instead of saved to disk.
+        if not os.path.exists(os.path.join(temp_dir, main_script_name)):
+            for root, dirs, files in os.walk(temp_dir):
                 if main_script_name in files:
-                    shutil.move(os.path.join(root, main_script_name), user_folder)
+                    shutil.move(os.path.join(root, main_script_name), os.path.join(temp_dir, main_script_name))
                     break
 
-        # Store the zip's .env (parsed before the move) into MongoDB so the
-        # dashboard "Env" button reads/edits it and runners inject it at launch.
+        # Snapshot the extracted project into MongoDB (files live in the DB,
+        # not persistently on the VPS disk). Skip generated node_modules dirs.
+        project_files = []
+        for sub_root, sub_dirs, sub_files in os.walk(temp_dir):
+            sub_dirs[:] = [d for d in sub_dirs if d != 'node_modules']
+            for f in sub_files:
+                snap_abs = os.path.join(sub_root, f)
+                try:
+                    with open(snap_abs, 'rb') as sf:
+                        project_files.append({'path': os.path.relpath(snap_abs, temp_dir).replace(os.sep, '/'),
+                                              'content': sf.read()})
+                except Exception as e:
+                    logger.error(f"Error reading {snap_abs} for DB snapshot: {e}")
+        if not _store_project_data(user_id, main_script_name, file_type, project_files, is_project=True):
+            logger.error(f"Failed to store project {main_script_name} for {user_id} in DB")
+            bot.reply_to(message, "Failed to store the project in the database. Please try again.")
+            return
+        logger.info(f"Stored project '{main_script_name}' ({file_type}, {len(project_files)} files) for {user_id} in DB")
+
+        # Store the zip's .env (parsed before) so the dashboard Env button
+        # reads/edits it and runners inject it at launch.
         base_name = os.path.basename(main_script_name)
         for old_fn, _old_ft in list(user_files.get(user_id, [])):
             if old_fn != main_script_name and os.path.basename(old_fn) == base_name:
                 logger.info(f"Removing stale duplicate '{old_fn}' before registering '{main_script_name}'")
                 remove_user_file_db(user_id, old_fn)
-                old_dir = os.path.dirname(os.path.join(user_folder, old_fn))
-                if old_dir and os.path.dirname(old_fn) and os.path.exists(old_dir):
-                    shutil.rmtree(old_dir, ignore_errors=True)
+                try: _destroy_project(user_id, old_fn)
+                except Exception as e: logger.error(f"Failed to destroy stale project files for {old_fn}: {e}")
+                try: db.user_file_data.delete_one({'user_id': user_id, 'file_name': old_fn})
+                except Exception as e: logger.error(f"Failed to delete stale DB data for {old_fn}: {e}")
                 try: db.user_env.delete_one({'user_id': user_id, 'file_name': old_fn})
                 except Exception as e: logger.error(f"Failed to delete stale env for {old_fn}: {e}")
 
@@ -1663,7 +1674,7 @@ def _logic_run_all_scripts(message_or_call):
                 
             if not is_bot_running(target_user_id, file_name):
                 file_path = os.path.join(user_folder, file_name)
-                if os.path.exists(file_path):
+                if _materialize_project(target_user_id, file_name):
                     logger.info(f"Admin {admin_user_id} attempting to start '{file_name}' ({file_type}) for user {target_user_id}.")
                     try:
                         if file_type == 'py':
@@ -1682,8 +1693,8 @@ def _logic_run_all_scripts(message_or_call):
                         error_files_details.append(f"`{file_name}` (User {target_user_id}) - Start error")
                         skipped_files += 1
                 else:
-                    logger.warning(f"File '{file_name}' for user {target_user_id} not found at '{file_path}'. Skipping.")
-                    error_files_details.append(f"`{file_name}` (User {target_user_id}) - File not found")
+                    logger.warning(f"Stored file '{file_name}' for user {target_user_id} not found in DB. Skipping.")
+                    error_files_details.append(f"`{file_name}` (User {target_user_id}) - File data not in DB")
                     skipped_files += 1
 
     summary_msg = (f"All Users' Scripts - Processing Complete:\n\n"
@@ -1980,11 +1991,15 @@ def handle_file_upload_doc(message):
         if file_ext == '.zip':
             handle_zip_file(downloaded_file_content, file_name, message)
         else:
+            file_type = 'py' if file_ext == '.py' else 'js'
+            if not _store_single_file_data(user_id, file_name, file_type, downloaded_file_content):
+                logger.error(f"Failed to store single {file_type} {file_name} for {user_id} in DB")
+                bot.reply_to(message, "Failed to store the file in the database. Please try again.")
+                return
+            logger.info(f"Stored single {file_type} {file_name} for user {user_id} in DB (not on disk until started)")
             file_path = os.path.join(user_folder, file_name)
-            with open(file_path, 'wb') as f: f.write(downloaded_file_content)
-            logger.info(f"Saved single file to {file_path}")
-            if file_ext == '.js': handle_js_file(file_path, user_id, user_folder, file_name, message)
-            elif file_ext == '.py': handle_py_file(file_path, user_id, user_folder, file_name, message)
+            if file_type == 'js': handle_js_file(file_path, user_id, user_folder, file_name, message)
+            else: handle_py_file(file_path, user_id, user_folder, file_name, message)
     except telebot.apihelper.ApiTelegramException as e:
          logger.error(f"Telegram API Error handling file for {user_id}: {e}", exc_info=True)
          if "file is too big" in str(e).lower():
@@ -2359,9 +2374,11 @@ def start_bot_callback(call):
         user_folder = get_user_folder(script_owner_id)
         file_path = os.path.join(user_folder, file_name)
 
-        if not os.path.exists(file_path):
-            bot.answer_callback_query(call.id, f"Error: File `{file_name}` missing! Re-upload.", show_alert=True)
-            remove_user_file_db(script_owner_id, file_name); check_files_callback(call); return
+        # Files live in MongoDB and are only written to the VPS disk here,
+        # at Start time.
+        if not _materialize_project(script_owner_id, file_name):
+            bot.answer_callback_query(call.id, f"Error: Stored file `{file_name}` not found in the database! Re-upload.", show_alert=True)
+            check_files_callback(call); return
         
         file_status = get_file_status(script_owner_id, file_name)
         if file_status['status'] != FILE_STATUS_APPROVED:
@@ -2436,6 +2453,9 @@ def stop_bot_callback(call):
                      chat_id_for_reply, call.message.message_id,
                      reply_markup=create_control_buttons(script_owner_id, file_name, False), parse_mode='Markdown')
             except Exception as e: logger.error(f"Error updating buttons (already stopped): {e}")
+            # Remove any leftover VPS files; the copy remains in MongoDB.
+            try: _destroy_project(script_owner_id, file_name)
+            except Exception as e: logger.error(f"Failed to destroy leftover files (already stopped): {e}")
             return
 
         bot.answer_callback_query(call.id, f"Stopping {file_name} for user {script_owner_id}...")
@@ -2444,6 +2464,10 @@ def stop_bot_callback(call):
             kill_process_tree(process_info)
             if script_key in bot_scripts: del bot_scripts[script_key]; logger.info(f"Removed {script_key} from running after stop.")
         else: logger.warning(f"Script {script_key} running by psutil but not in bot_scripts dict.")
+
+        # Destroy the bot's files from the VPS disk; the copy stays in MongoDB.
+        try: _destroy_project(script_owner_id, file_name)
+        except Exception as e: logger.error(f"Failed to destroy files on stop for {script_key}: {e}")
 
         try:
             bot.edit_message_text(
@@ -2480,10 +2504,10 @@ def restart_bot_callback(call):
         file_type = file_info[1]; user_folder = get_user_folder(script_owner_id)
         file_path = os.path.join(user_folder, file_name); script_key = f"{script_owner_id}_{file_name}"
 
-        if not os.path.exists(file_path):
-            bot.answer_callback_query(call.id, f"Error: File `{file_name}` missing! Re-upload.", show_alert=True)
-            remove_user_file_db(script_owner_id, file_name)
-            if script_key in bot_scripts: del bot_scripts[script_key]
+        # Re-materialize from MongoDB (a previous Stop may have removed the
+        # files from the VPS disk).
+        if not _materialize_project(script_owner_id, file_name):
+            bot.answer_callback_query(call.id, f"Error: Stored file `{file_name}` not found in the database! Re-upload.", show_alert=True)
             check_files_callback(call); return
         
         file_status = get_file_status(script_owner_id, file_name)
@@ -2561,6 +2585,14 @@ def _delete_user_file(user_id, file_name):
         logger.info(f"Removed file approval record: {user_id}/{file_name}")
     except Exception as e:
         logger.error(f"Error removing file approval: {e}")
+    try:
+        db.user_file_data.delete_one({'user_id': user_id, 'file_name': file_name})
+        logger.info(f"Removed file data record: {user_id}/{file_name}")
+    except Exception as e:
+        logger.error(f"Error removing file data: {e}")
+    # Remove any materialized copies left on the VPS disk.
+    try: _destroy_project(user_id, file_name)
+    except Exception as e: logger.error(f"Error destroying project files on delete: {e}")
     return {'ok': True, 'message': f"'{file_name}' deleted.", 'deleted': deleted_disk}
 
 def _clear_all_files(user_id):
@@ -2579,7 +2611,7 @@ def _clear_all_files(user_id):
             logger.info(f"Clear-all: deleted folder {user_folder}")
         except Exception as e:
             logger.error(f"Clear-all folder delete error: {e}")
-    for coll in ('user_files', 'file_approvals', 'user_env'):
+    for coll in ('user_files', 'user_file_data', 'file_approvals', 'user_env'):
         try:
             deleted = db[coll].delete_many({'user_id': user_id}).deleted_count
             logger.info(f"Clear-all: removed {deleted} {coll} record(s) for {user_id}")
@@ -3138,10 +3170,142 @@ def _parse_env_text(text):
         env_data[k.strip()] = v.strip().strip('"').strip("'")
     return env_data
 
+# ====================== DB-BACKED FILE STORAGE ======================
+# Files are kept in MongoDB (the "user_file_data" collection) between runs.
+# They are only written to the VPS disk once a user hits Start, and are
+# destroyed from the disk again when the user stops the bot. The DB copy
+# stays until the user (or admin) permanently deletes the file.
+# MongoDB documents are limited to 16 MB, so uploads approaching the 20 MB
+# cap may fail to store - an accepted trade-off for this DB-first model.
+
+def _store_project_data(user_id, file_name, file_type, files, is_project=False):
+    """Upsert a user's file/project content into MongoDB (user_file_data)."""
+    try:
+        db.user_file_data.replace_one(
+            {'user_id': user_id, 'file_name': file_name},
+            {'user_id': user_id, 'file_name': file_name, 'file_type': file_type,
+             'is_project': bool(is_project), 'files': files,
+             'updated_at': datetime.now().isoformat()},
+            upsert=True)
+        logger.info(f"Stored {len(files)} file(s) for {user_id}/{file_name} in DB (project={bool(is_project)})")
+        return True
+    except Exception as e:
+        logger.error(f"Error storing {user_id}/{file_name} in DB: {e}", exc_info=True)
+        return False
+
+
+def _store_single_file_data(user_id, file_name, file_type, content):
+    """Store a single uploaded file's bytes into MongoDB (not onto disk)."""
+    try:
+        content = bytes(content) if content is not None else b''
+    except Exception:
+        content = (content or '').encode('utf-8', errors='ignore')
+    return _store_project_data(user_id, file_name, file_type,
+                               [{'path': file_name, 'content': content}], is_project=False)
+
+
+def _materialize_project(user_id, file_name):
+    """Write a user's project files from MongoDB to the VPS disk so the bot can run."""
+    user_folder = get_user_folder(user_id)
+    try:
+        doc = db.user_file_data.find_one({'user_id': user_id, 'file_name': file_name})
+        if not doc or not doc.get('files'):
+            logger.warning(f"No DB content found for {user_id}/{file_name}. File was not materialized.")
+            return False
+        folder_abs = os.path.abspath(user_folder)
+        written = 0
+        for f in doc['files']:
+            rel = (f.get('path') or '').replace('\\', '/')
+            if not rel or os.path.isabs(rel):
+                continue
+            dest = os.path.abspath(os.path.join(user_folder, rel))
+            if not dest.startswith(folder_abs + os.sep) and dest != folder_abs:
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            content = f.get('content')
+            if isinstance(content, bytes):
+                with open(dest, 'wb') as fh:
+                    fh.write(content)
+            else:
+                with open(dest, 'w', encoding='utf-8', errors='ignore') as fh:
+                    fh.write(str(content or ''))
+            written += 1
+        logger.info(f"Materialized {written} file(s) for {user_id}/{file_name} to {user_folder}")
+        return True
+    except Exception as e:
+        logger.error(f"Error materializing {user_id}/{file_name}: {e}", exc_info=True)
+        return False
+
+
+def _destroy_project(user_id, file_name):
+    """Remove a user's project files from the VPS disk. The DB copy is kept."""
+    user_folder = get_user_folder(user_id)
+    removed = []
+    try:
+        doc = db.user_file_data.find_one({'user_id': user_id, 'file_name': file_name})
+        if doc and doc.get('files'):
+            targets = [f.get('path') for f in doc['files']]
+        else:
+            targets = [file_name]
+        folder_abs = os.path.abspath(user_folder)
+        for rel in targets:
+            rel = (rel or '').replace('\\', '/')
+            if not rel or os.path.isabs(rel):
+                continue
+            dest = os.path.abspath(os.path.join(user_folder, rel))
+            if not dest.startswith(folder_abs + os.sep) and dest != folder_abs:
+                continue
+            try:
+                if os.path.exists(dest):
+                    os.remove(dest)
+                    removed.append(os.path.basename(dest))
+            except OSError as e:
+                logger.error(f"Error destroying {dest}: {e}")
+        if removed:
+            logger.info(f"Destroyed VPS files for {user_id}/{file_name}: {removed}")
+        return removed
+    except Exception as e:
+        logger.error(f"Error destroying project {user_id}/{file_name}: {e}", exc_info=True)
+        return removed
+
+
+def _resolve_display_name(user_id, fallback):
+    """Best-effort Telegram display name with a bounded timeout so a slow or
+    unreachable Telegram API call can never block (and hang) the web dashboard
+    HTTP handler in this same process."""
+    if not user_id:
+        return fallback
+    result = {}
+    def _lookup():
+        try:
+            result['c'] = bot.get_chat(user_id)
+        except Exception:
+            result['c'] = None
+    th = threading.Thread(target=_lookup, daemon=True)
+    th.start()
+    th.join(timeout=2.5)
+    if th.is_alive():
+        logger.warning(f"get_chat({user_id}) timed out; using fallback display name")
+        return fallback
+    c = result.get('c')
+    if c is None:
+        return fallback
+    try:
+        name = c.first_name or fallback
+    except Exception:
+        name = fallback
+    try:
+        if getattr(c, 'username', None):
+            name = f"@{c.username}"
+    except Exception:
+        pass
+    return name
+
+
 def start_status_server():
     """HTTP server: public /health + /stats for the landing page, plus the
     authenticated web dashboard API (/api/...) backed by WEB_USERS logins."""
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler, HTTPServer
     from urllib.parse import urlparse, parse_qs
 
     MAX_LOG_BYTES = 64 * 1024
@@ -3215,14 +3379,7 @@ def start_status_server():
             plan_note = (f"Paid plan '{PLANS.get(registered_plan, {}).get('name', registered_plan)}' "
                          f"requested - waiting for admin activation.")
 
-        display_name = username
-        try:
-            chat = bot.get_chat(user_id)
-            display_name = chat.first_name or username
-            if getattr(chat, 'username', None):
-                display_name = f"@{chat.username}"
-        except Exception:
-            pass
+        display_name = _resolve_display_name(user_id, username)
 
         sub = user_subscriptions.get(user_id)
         expires = sub['expiry'].isoformat() if sub else None
@@ -3297,6 +3454,8 @@ def start_status_server():
             status = get_file_status(user_id, file_name)['status']
             if status != FILE_STATUS_APPROVED:
                 return {'ok': False, 'error': f"'{file_name}' is {status}. It must be approved first."}
+            if not _materialize_project(user_id, file_name):
+                return {'ok': False, 'error': f"Stored file '{file_name}' not found in the database."}
             fake = _make_fake_message(user_id)
             if ft == 'js':
                 threading.Thread(target=run_js_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
@@ -3310,6 +3469,9 @@ def start_status_server():
             if info:
                 kill_process_tree(info)
                 bot_scripts.pop(key, None)
+            # Destroy the VPS files; the DB copy stays until the user deletes it.
+            try: _destroy_project(user_id, file_name)
+            except Exception as e: logger.error(f"Web stop destroy error for {key}: {e}")
             return {'ok': True, 'message': f"'{file_name}' stopped"}
         elif action == 'restart':
             info = bot_scripts.get(key)
@@ -3319,6 +3481,8 @@ def start_status_server():
             status = get_file_status(user_id, file_name)['status']
             if status != FILE_STATUS_APPROVED:
                 return {'ok': False, 'error': f"'{file_name}' is {status}. It must be approved first."}
+            if not _materialize_project(user_id, file_name):
+                return {'ok': False, 'error': f"Stored file '{file_name}' not found in the database."}
             fake = _make_fake_message(user_id)
             if ft == 'js':
                 threading.Thread(target=run_js_script, args=(script_path, user_id, user_folder, file_name, fake)).start()
@@ -3563,7 +3727,7 @@ def start_status_server():
             pass
 
     try:
-        server = HTTPServer(('0.0.0.0', STATUS_SERVER_PORT), Handler)
+        server = ThreadingHTTPServer(('0.0.0.0', STATUS_SERVER_PORT), Handler)
         logger.info(f"Status server listening on http://0.0.0.0:{STATUS_SERVER_PORT}")
         server.serve_forever()
     except Exception as e:

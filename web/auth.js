@@ -39,7 +39,24 @@
             opts.body = JSON.stringify(opts.body);
             opts.headers["Content-Type"] = "application/json";
         }
-        var res = await fetch(API.base + path, opts);
+        // Defensive timeout so a slow/unreachable VPS can't leave the dashboard
+        // stuck on the loading screen forever.
+        var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+        if (controller) opts.signal = controller.signal;
+        var timer = setTimeout(function () {
+            if (controller) controller.abort();
+        }, 15000);
+        var res;
+        try {
+            res = await fetch(API.base + path, opts);
+        } catch (e) {
+            clearTimeout(timer);
+            var netErr = e && e.name === "AbortError" ? "Request timed out. VPS not responding." : (e.message || "Network error");
+            var ab = new Error(netErr);
+            ab.status = 0;
+            throw ab;
+        }
+        clearTimeout(timer);
         var data = null;
         try { data = await res.json(); } catch (e) { /* no body */ }
         if (!res.ok) {
