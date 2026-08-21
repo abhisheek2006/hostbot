@@ -247,6 +247,7 @@ approval, then **Start** it from the file controls.
 | `/start` · `/help` | Main menu & help |
 | `/uploadfile` | Upload a script/project |
 | `/checkfiles` | Manage your bots |
+| `/edit` | Edit a file's `.env` (view + update environment variables) |
 | `/stats` | Statistics |
 | `/speed` · `/uptime` | Speed test / uptime |
 | `/plans` | View hosting plans |

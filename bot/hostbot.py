@@ -147,6 +147,9 @@ WEB_USERS = load_web_users()
 # Pending registrations started from the bot: user_id -> {'username': ..., 'password': ...}
 pending_regs = {}
 
+# Pending in-bot env edits: user_id -> file_name being edited (for /edit flow)
+pending_env_edits = {}
+
 def _hash_password(password, salt):
     return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000).hex()
 
@@ -231,8 +234,8 @@ COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
     ["📤 Upload File", "📂 Check Files"],
     ["⚡ Bot Speed", "📊 Statistics"],
     ["💠 Plans", "📝 Register"],
-    ["🌐 Web Dashboard", "🤖 MPX Ai"],
-    ["📞 Contact Owner"]
+    ["✏️ Edit .env", "🌐 Web Dashboard"],
+    ["🤖 MPX Ai", "📞 Contact Owner"]
 ]
 
 ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
@@ -242,8 +245,9 @@ ADMIN_COMMAND_BUTTONS_LAYOUT_USER_SPEC = [
     ["💠 Plans", "💳 Subscriptions"],
     ["📝 Register", "📢 Broadcast"],
     ["🔒 Lock Bot", "🟢 Running All Code"],
-    ["👑 Admin Panel", "📞 Contact Owner"],
-    ["🤖 MPX Ai", "⏱ Uptime"],
+    ["✏️ Edit .env", "👑 Admin Panel"],
+    ["🤖 MPX Ai", "📞 Contact Owner"],
+    ["⏱ Uptime"],
 ]
 
 mongo_client = None
@@ -1895,11 +1899,113 @@ def regplan_callback(call):
     except Exception:
         bot.send_message(call.message.chat.id, text, parse_mode='HTML')
 
+# ---- In-bot env editor (/edit) ----
+def _logic_edit(message):
+    """/edit - show the user's files so they can pick one to edit its .env."""
+    user_id = message.from_user.id
+    user_files_list = user_files.get(user_id, [])
+    if not user_files_list:
+        bot.reply_to(message, "You have no files yet. Upload one with /uploadfile first.")
+        return
+    response = "✏️ **Edit Environment (.env)**\n\nSelect a file to edit its environment variables:\n\n"
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for file_name, file_type in sorted(user_files_list):
+        markup.add(types.InlineKeyboardButton(f"✏️ {file_name} ({file_type})",
+                                              callback_data=f'editfile_{user_id}_{file_name}'))
+    markup.add(types.InlineKeyboardButton("🔙 Back to Main", callback_data='back_to_main'))
+    bot.reply_to(message, response, parse_mode='Markdown', reply_markup=markup)
+
+def _logic_edit_callback(call):
+    """Callback from the file list: show current env + ask for the new one."""
+    requester = call.from_user.id
+    _, owner_id_str, file_name = call.data.split('_', 2)
+    owner_id = int(owner_id_str)
+    if requester != owner_id and requester not in admin_ids:
+        bot.answer_callback_query(call.id, "You can only edit your own files.", show_alert=True)
+        return
+    if not any(f[0] == file_name for f in user_files.get(owner_id, [])):
+        bot.answer_callback_query(call.id, "File not found.", show_alert=True)
+        return
+    bot.answer_callback_query(call.id)
+
+    env_data = _db_get_env(owner_id, file_name)
+    cur = "\n".join(f"{k}={v}" for k, v in env_data.items()) if env_data else "(empty)"
+    is_running = is_bot_running(owner_id, file_name)
+
+    msg = (f"✏️ **Edit .env for:** `{file_name}` (User `{owner_id}`)\n\n"
+           f"📄 **Current variables:**\n```\n{cur}\n```\n\n"
+           f"📝 Send the **new** environment below, one `KEY=VALUE` per line.\n"
+           f"Keys must use letters, digits and underscore.\n"
+           f"Send `/cancel` to abort.")
+    if is_running:
+        msg += "\n\n⚠️ The bot is currently running - it will be **restarted** with the new env."
+
+    pending_env_edits[owner_id] = file_name
+    sent = bot.send_message(call.message.chat.id, msg, parse_mode='Markdown')
+    bot.register_next_step_handler(sent, _process_edit_env)
+
+def _process_edit_env(message):
+    """Receive the new env text, validate, store to DB, and restart if running."""
+    user_id = message.from_user.id
+    file_name = pending_env_edits.get(user_id)
+    if not file_name:
+        return
+    text = (message.text or '').strip()
+    if text.lower() in ('/cancel', 'cancel', 'clear'):
+        pending_env_edits.pop(user_id, None)
+        bot.reply_to(message, "Cancelled env editing.")
+        return
+    try:
+        env_data = _parse_env_text(text)
+        env_key_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+        invalid = [k for k in env_data if not env_key_re.match(k)]
+        if invalid:
+            bot.reply_to(message, "❌ Invalid key(s): " + ", ".join(invalid) +
+                         ". Use only letters, digits and underscore. Send again or /cancel.")
+            return
+        if not env_data:
+            bot.reply_to(message, "No valid `KEY=VALUE` lines found. Send again or /cancel.", parse_mode='Markdown')
+            return
+        _db_set_env(user_id, file_name, env_data)
+        pending_env_edits.pop(user_id, None)
+
+        summary = "\n".join(f"{k} = {v}" for k, v in env_data.items())
+        msg = (f"✅ Environment updated for `{file_name}`.\n\n"
+               f"📄 Stored ({len(env_data)} variable(s)):\n```\n{summary}\n```\n")
+
+        restarted = False
+        if is_bot_running(user_id, file_name):
+            key = f"{user_id}_{file_name}"
+            info = bot_scripts.get(key)
+            if info:
+                kill_process_tree(info)
+                bot_scripts.pop(key, None)
+            time.sleep(1.5)
+            user_folder = get_user_folder(user_id)
+            file_path = os.path.join(user_folder, file_name)
+            _materialize_project(user_id, file_name)
+            ft = next((t for f_, t in user_files.get(user_id, []) if f_ == file_name), 'py')
+            if ft == 'py':
+                threading.Thread(target=run_script, args=(file_path, user_id, user_folder, file_name, message, 1)).start()
+            elif ft == 'js':
+                threading.Thread(target=run_js_script, args=(file_path, user_id, user_folder, file_name, message, 1)).start()
+            restarted = True
+
+        if restarted:
+            msg += "\n🔄 Bot was restarted - the new environment is now applied."
+        else:
+            msg += "\n▶️ Start the bot so it runs with the new environment."
+        bot.reply_to(message, msg, parse_mode='Markdown')
+    except Exception as e:
+        logger.error(f"Error saving env for {user_id}/{file_name}: {e}", exc_info=True)
+        bot.reply_to(message, "Failed to save env. Please try again.")
+
 BUTTON_TEXT_TO_LOGIC = {
     "📢 Updates Channel": _logic_updates_channel,
     "🌐 Web Dashboard": _logic_web_dashboard,
     "📤 Upload File": _logic_upload_file,
     "📂 Check Files": _logic_check_files,
+    "✏️ Edit .env": _logic_edit,
     "⚡ Bot Speed": _logic_bot_speed,
     "📞 Contact Owner": _logic_contact_owner,
     "📊 Statistics": _logic_statistics,
@@ -1930,6 +2036,8 @@ def command_updates_channel(message):
 def command_upload_file(message): _logic_upload_file(message)
 @bot.message_handler(commands=['checkfiles'])
 def command_check_files(message): _logic_check_files(message)
+@bot.message_handler(commands=['edit'])
+def command_edit(message): _logic_edit(message)
 @bot.message_handler(commands=['botspeed'])
 def command_bot_speed(message): _logic_bot_speed(message)
 @bot.message_handler(commands=['contactowner'])
@@ -2139,6 +2247,8 @@ def handle_callbacks(call):
             upload_callback(call)
         elif data == 'check_files':
             check_files_callback(call)
+        elif data.startswith('editfile_'):
+            _logic_edit_callback(call)
         elif data.startswith('file_'):
             file_control_callback(call)
         elif data.startswith('start_'):
